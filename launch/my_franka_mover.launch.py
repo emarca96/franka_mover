@@ -15,20 +15,20 @@ def generate_launch_description():
     target_x = LaunchConfiguration('target_x', default='0.5')  # Default X coordinate
     target_y = LaunchConfiguration('target_y', default='0.0')  # Default Y coordinate
     target_z = LaunchConfiguration('target_z', default='0.2')  # Default Z coordinate
-    
-    # Path to the robot description and MoveIt configuration
-    franka_description_pkg = get_package_share_directory('franka_description')  # Corretto
-    moveit_config_pkg = get_package_share_directory('franka_fr3_moveit_config')  # Corretto
-    gazebo_pkg = get_package_share_directory('franka_gazebo_bringup')  # Corretto
-    
-   # Gazebo launch file
-    gazebo_launch = IncludeLaunchDescription(
-    PythonLaunchDescriptionSource(
-        os.path.join(gazebo_pkg, 'launch', 'visualize_franka_robot.launch.py')
-    ),
-    launch_arguments={'gz_args': 'empty.sdf -r'}.items()  # puoi mantenere gli argomenti, se necessari
-)
+    fake_sensor_commands = LaunchConfiguration('fake_sensor_commands', default='false')  # Aggiunto qui
 
+    # Path to the robot description and MoveIt configuration
+    franka_description_pkg = get_package_share_directory('franka_description')  # Correct
+    moveit_config_pkg = get_package_share_directory('franka_fr3_moveit_config')  # Correct
+    gazebo_pkg = get_package_share_directory('franka_gazebo_bringup')  # Correct
+    
+    # Gazebo launch file
+    gazebo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gazebo_pkg, 'launch', 'visualize_franka_robot.launch.py')
+        ),
+        launch_arguments={'gz_args': 'empty.sdf -r'}.items()  # Keep arguments if necessary
+    )
     
     # MoveIt launch file
     moveit_launch = IncludeLaunchDescription(
@@ -38,7 +38,8 @@ def generate_launch_description():
         launch_arguments={
             'robot_ip': robot_ip,
             'load_gripper': load_gripper,
-            'use_fake_hardware': 'true'
+            'use_fake_hardware': 'true',
+            'fake_sensor_commands': fake_sensor_commands  # Passato come parametro
         }.items()
     )
     
@@ -80,6 +81,7 @@ def generate_launch_description():
         DeclareLaunchArgument('target_x', default_value='0.5', description='Target X coordinate'),
         DeclareLaunchArgument('target_y', default_value='0.0', description='Target Y coordinate'),
         DeclareLaunchArgument('target_z', default_value='0.2', description='Target Z coordinate'),
+        DeclareLaunchArgument('fake_sensor_commands', default_value='false', description='Use fake sensor commands'),  # Dichiara l'argomento qui
         
         # Gazebo Simulation
         gazebo_launch,
