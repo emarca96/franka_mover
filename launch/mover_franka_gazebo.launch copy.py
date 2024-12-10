@@ -56,29 +56,18 @@ def get_robot_description(context: LaunchContext, arm_id, load_gripper, franka_h
         arm_id_str + '.urdf.xacro'
     )
 
-    robot_description_config = Command(
-    [FindExecutable(name='xacro'), ' ', franka_xacro_file,
-     ' hand:=true',
-     ' robot_ip:=', LaunchConfiguration('robot_ip'),
-     ' use_fake_hardware:=', LaunchConfiguration('use_fake_hardware'),
-     ' fake_sensor_commands:=', LaunchConfiguration('fake_sensor_commands'),
-     ' ros2_control:=true',
-     ' gazebo:=true'])
-    
-    
-    # xacro.process_file(
-    #     franka_xacro_file,
-    #     mappings={
-    #         'arm_id': arm_id_str,
-    #         'hand': load_gripper_str,
-    #         'ros2_control': 'true',
-    #         'gazebo': 'true',
-    #         'ee_id': franka_hand_str
-    #     }
-    # )
+    robot_description_config = xacro.process_file(
+        franka_xacro_file,
+        mappings={
+            'arm_id': arm_id_str,
+            'hand': load_gripper_str,
+            'ros2_control': 'true',
+            'gazebo': 'true',
+            'ee_id': franka_hand_str
+        }
+    )
 
-    #robot_description = {'robot_description': robot_description_config.toxml()}
-    robot_description = {'robot_description': ParameterValue(robot_description_config, value_type=str)}
+    robot_description = {'robot_description': robot_description_config.toxml()}
 
     robot_state_publisher = Node(
         package='robot_state_publisher',
@@ -132,7 +121,7 @@ def prepare_launch_description():
          ' robot_ip:=', robot_ip, ' use_fake_hardware:=', use_fake_hardware,
          ' fake_sensor_commands:=', fake_sensor_commands, ' ros2_control:=true'])
 
-    robot_description = {'robot_description': ParameterValue(
+    robot_description_moveit = {'robot_description': ParameterValue(
         robot_description_config_moveit, value_type=str)}
 
     franka_semantic_xacro_file = os.path.join(
@@ -239,7 +228,7 @@ def prepare_launch_description():
         executable='move_group',
         output='screen',
         parameters=[
-            robot_description,
+            robot_description_moveit,
             robot_description_semantic,
             kinematics_yaml,
             ompl_planning_pipeline_config,
@@ -265,7 +254,7 @@ def prepare_launch_description():
         output='log',
         arguments=['-d', rviz_full_config],
         parameters=[
-            robot_description,
+            robot_description_moveit,
             robot_description_semantic,
             ompl_planning_pipeline_config,
             kinematics_yaml,
@@ -297,7 +286,7 @@ def prepare_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='both',
-        parameters=[robot_description],
+        parameters=[robot_description_moveit],
     )
 
     ros2_controllers_path = os.path.join(
@@ -309,7 +298,7 @@ def prepare_launch_description():
     ros2_control_node = Node(
         package='controller_manager',
         executable='ros2_control_node',
-        parameters=[robot_description, ros2_controllers_path],
+        parameters=[robot_description_moveit, ros2_controllers_path],
         remappings=[('joint_states', 'franka/joint_states')],
         output={
             'stdout': 'screen',
