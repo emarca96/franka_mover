@@ -8,21 +8,27 @@ endif()
 # Dipendenze
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(moveit_ros_planning_interface REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(franka_description REQUIRED)
+find_package(rclpy REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(moveit_ros_planning_interface REQUIRED)
 
 
 # Install project launch files
 install(
   DIRECTORY
-    launch config
+    launch config srdf rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Aggiungi gli script Python
 install(
-  DIRECTORY config launch srdf rviz
-  DESTINATION share/${PROJECT_NAME}
+  PROGRAMS
+    scripts/franka_mover_target.py  # Path allo script Python
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
