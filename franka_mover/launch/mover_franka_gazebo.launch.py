@@ -44,42 +44,41 @@ def load_yaml(package_name, file_path):
 
 
 
-def get_robot_description(context: LaunchContext, arm_id, load_gripper, franka_hand):
-    arm_id_str = context.perform_substitution(arm_id)
-    load_gripper_str = context.perform_substitution(load_gripper)
-    franka_hand_str = context.perform_substitution(franka_hand)
+# def get_robot_description(context: LaunchContext, arm_id, load_gripper, franka_hand):
+    
+    
+    
 
-    franka_xacro_file = os.path.join(
-        get_package_share_directory('franka_description'),
-        'robots',
-        arm_id_str,
-        arm_id_str + '.urdf.xacro'
-    )
+#     franka_xacro_file = os.path.join(
+#         get_package_share_directory('franka_description'),
+#         'robots',
+#         arm_id_str,
+#         arm_id_str + '.urdf.xacro'
+#     )
 
-    robot_description_config = xacro.process_file(
-        franka_xacro_file,
-        mappings={
-            'arm_id': arm_id_str,
-            'hand': load_gripper_str,
-            'ros2_control': 'true',
-            'gazebo': 'true',
-            'ee_id': franka_hand_str
-        }
-    )
+#     # robot_description_config = xacro.process_file(
+#     #     franka_xacro_file,
+#     #     mappings={
+#     #         'arm_id': arm_id_str,
+            
+            
+#     #         'ee_id': franka_hand_str
+#     #     }
+#     # )
 
-    robot_description = {'robot_description': robot_description_config.toxml()}
+#     robot_description = {'robot_description': robot_description_config.toxml()}
 
-    robot_state_publisher = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        name='robot_state_publisher',
-        output='both',
-        parameters=[
-            robot_description,
-        ]
-    )
+#     robot_state_publisher = Node(
+#         package='robot_state_publisher',
+#         executable='robot_state_publisher',
+#         name='robot_state_publisher',
+#         output='both',
+#         parameters=[
+#             robot_description,
+#         ]
+#     )
 
-    return [robot_state_publisher]
+#     return [robot_state_publisher]
 
 
 def prepare_launch_description():
@@ -116,13 +115,13 @@ def prepare_launch_description():
         'robots', 'fr3', 'fr3.urdf.xacro'
     )
 
-    robot_description_config_moveit = Command(
+    robot_description_config = Command(
         [FindExecutable(name='xacro'), ' ', franka_xacro_file, ' hand:=true',
          ' robot_ip:=', robot_ip, ' use_fake_hardware:=', use_fake_hardware,
-         ' fake_sensor_commands:=', fake_sensor_commands, ' ros2_control:=true'])
+         ' fake_sensor_commands:=', fake_sensor_commands, ' ros2_control:=true',' gazebo:=true'])
 
-    robot_description_moveit = {'robot_description': ParameterValue(
-        robot_description_config_moveit, value_type=str)}
+    robot_description = {'robot_description': ParameterValue(
+        robot_description_config, value_type=str)}
 
     franka_semantic_xacro_file = os.path.join(
         get_package_share_directory('franka_fr3_moveit_config'),
@@ -200,9 +199,9 @@ def prepare_launch_description():
             description='Available values: fr3, fp3 and fer')
 
     # Get robot description
-    robot_state_publisher = OpaqueFunction(
-        function=get_robot_description,
-        args=[arm_id, load_gripper, franka_hand])
+    # robot_state_publisher = OpaqueFunction(
+    #     function=get_robot_description,
+    #     args=[arm_id, load_gripper, franka_hand])
 
     # Gazebo Sim
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
@@ -228,7 +227,7 @@ def prepare_launch_description():
         executable='move_group',
         output='screen',
         parameters=[
-            robot_description_moveit,
+            robot_description,
             robot_description_semantic,
             kinematics_yaml,
             ompl_planning_pipeline_config,
@@ -254,7 +253,7 @@ def prepare_launch_description():
         output='log',
         arguments=['-d', rviz_full_config],
         parameters=[
-            robot_description_moveit,
+            robot_description,
             robot_description_semantic,
             ompl_planning_pipeline_config,
             kinematics_yaml,
@@ -281,12 +280,12 @@ def prepare_launch_description():
 ################ inizio per pubblicazioni moveit
 
 # Publish TF
-    robot_state_publisher_moveit = Node(
+    robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='both',
-        parameters=[robot_description_moveit],
+        parameters=[robot_description],
     )
 
     ros2_controllers_path = os.path.join(
@@ -298,7 +297,7 @@ def prepare_launch_description():
     ros2_control_node = Node(
         package='controller_manager',
         executable='ros2_control_node',
-        parameters=[robot_description_moveit, ros2_controllers_path],
+        parameters=[robot_description, ros2_controllers_path],
         remappings=[('joint_states', 'franka/joint_states')],
         output={
             'stdout': 'screen',
@@ -363,17 +362,17 @@ def prepare_launch_description():
         use_fake_hardware_arg, #da moveit
         fake_sensor_commands_arg, #da moveit
         db_arg, #da moveit
-        robot_state_publisher_moveit, #da moveit
+        robot_state_publisher, #da moveit
         run_move_group_node, #da moveit
-        franka_robot_state_broadcaster, #da moveit
-        gripper_launch_file, #da moveit
-        ros2_control_node, #da moveit
-        joint_state_publisher, #da moveit
-        load_gripper_launch_argument,
-        franka_hand_launch_argument,
+        # franka_robot_state_broadcaster, #da moveit
+        # gripper_launch_file, #da moveit
+        # ros2_control_node, #da moveit
+        #joint_state_publisher, #da moveit
+        # load_gripper_launch_argument,
+        # franka_hand_launch_argument,
         arm_id_launch_argument,
         gazebo_empty_world,
-        robot_state_publisher,
+        #robot_state_publisher,
         ### rviz, ## ritornata se attivo rviz del file launch di gazebo
         rviz_node, # lo ritorno xk attivo rviz da moveit.launch
         spawn,
@@ -394,7 +393,7 @@ def prepare_launch_description():
                  'rate': 30}],
         ),
 
-        ] + load_controllers
+        ] # + load_controllers
     )
 
 

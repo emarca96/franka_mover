@@ -11,7 +11,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     Shutdown
 )
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit,OnProcessStart,OnExecutionComplete
 from launch.conditions import UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -28,163 +28,8 @@ from launch.actions import AppendEnvironmentVariable
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
-from moveit_configs_utils import MoveItConfigsBuilder
 
 import yaml
-
-def generate_launch_description():
-
-    declared_arguments = []
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "rviz_config",
-            default_value="moveit.rviz",
-            description="RViz configuration file",
-        )
-    )
-
-    return LaunchDescription(
-        declared_arguments + [OpaqueFunction(function=launch_setup)]
-    )
-
-def launch_setup(context, *args, **kwargs):
-
-    moveit_config = (
-        MoveItConfigsBuilder("moveit_resources_panda")
-        .robot_description(file_path="config/panda.urdf.xacro")
-        .trajectory_execution(file_path="config/gripper_moveit_controllers.yaml")
-        .planning_scene_monitor(
-            publish_robot_description=True, publish_robot_description_semantic=True
-        )
-        .planning_pipelines(
-            pipelines=["ompl", "chomp", "pilz_industrial_motion_planner"]
-        )
-        .to_moveit_configs()
-    )
-
-    # Start the actual move_group node/action server
-    run_move_group_node = Node(
-        package="moveit_ros_move_group",
-        executable="move_group",
-        output="screen",
-        parameters=[moveit_config.to_dict()],
-    )
-
-    rviz_base = LaunchConfiguration("rviz_config")
-    rviz_config = PathJoinSubstitution(
-        [FindPackageShare("moveit2_tutorials"), "launch", rviz_base]
-    )
-
-    # RViz
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
-        output="log",
-        arguments=["-d", rviz_config],
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
-            moveit_config.planning_pipelines,
-            moveit_config.joint_limits,
-        ],
-    )
-
-    # Static TF
-    static_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_transform_publisher",
-        output="log",
-        arguments=["0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "world", "panda_link0"],
-    )
-
-    # Publish TF
-    robot_state_publisher = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        name="robot_state_publisher",
-        output="both",
-        parameters=[moveit_config.robot_description],
-    )
-
-    # ros2_control using FakeSystem as hardware
-    ros2_controllers_path = os.path.join(
-        get_package_share_directory("moveit_resources_panda_moveit_config"),
-        "config",
-        "ros2_controllers.yaml",
-    )
-    ros2_control_node = Node(
-        package="controller_manager",
-        executable="ros2_control_node",
-        parameters=[moveit_config.robot_description, ros2_controllers_path],
-        output="both",
-    )
-
-    joint_state_broadcaster_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "joint_state_broadcaster",
-            "--controller-manager-timeout",
-            "300",
-            "--controller-manager",
-            "/controller_manager",
-        ],
-    )
-
-    arm_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["panda_arm_controller", "-c", "/controller_manager"],
-    )
-
-    hand_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["panda_hand_controller", "-c", "/controller_manager"],
-    )
-    nodes_to_start = [
-        rviz_node,
-        static_tf,
-        robot_state_publisher,
-        run_move_group_node,
-        ros2_control_node,
-        joint_state_broadcaster_spawner,
-        arm_controller_spawner,
-        hand_controller_spawner,
-    ]
-
-    return nodes_to_start
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def load_yaml(package_name, file_path):
@@ -366,14 +211,24 @@ def prepare_launch_description():
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
         launch_arguments={'gz_args': 'empty.sdf -r', }.items(),
     )
-
-    # Spawn
+    Log_message = LogInfo(msg='Spawning Robot')
     spawn = Node(
-        package='ros_gz_sim',
-        executable='create',
-        arguments=['-topic', '/robot_description'],
-        output='screen',
-    )
+                    package='ros_gz_sim',
+                    executable='create',
+                    arguments=['-topic', '/robot_description'],
+                    output='screen',
+            )
+    
+    # Spawn Delayes
+    SpownDelayed = RegisterEventHandler(
+        OnProcessStart(
+            target_action = gazebo_empty_world,
+            on_start=[
+                TimerAction( 
+                period = 25.0 ,
+                actions=[spawn, Log_message])
+        ]
+        ))
 
 #################### inizio move_group node/action server
 
@@ -398,34 +253,34 @@ def prepare_launch_description():
 
     ### Rviz nel moveit.launch ########
 
-    rviz_base = os.path.join(get_package_share_directory(
-        'franka_fr3_moveit_config'), 'rviz')
-    rviz_full_config = os.path.join(rviz_base, 'moveit.rviz')
+    # rviz_base = os.path.join(get_package_share_directory(
+    #     'franka_fr3_moveit_config'), 'rviz')
+    # rviz_full_config = os.path.join(rviz_base, 'moveit.rviz')
 
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='log',
-        arguments=['-d', rviz_full_config],
-        parameters=[
-            robot_description_moveit,
-            robot_description_semantic,
-            ompl_planning_pipeline_config,
-            kinematics_yaml,
-        ],
-    )
+    # rviz_node = Node(
+    #     package='rviz2',
+    #     executable='rviz2',
+    #     name='rviz2',
+    #     output='log',
+    #     arguments=['-d', rviz_full_config],
+    #     parameters=[
+    #         robot_description_moveit,
+    #         robot_description_semantic,
+    #         ompl_planning_pipeline_config,
+    #         kinematics_yaml,
+    #     ],
+    # )
     ################################################
 
-    # # Visualize in RViz che cera nel launch gazebo
-    # rviz_file = os.path.join(get_package_share_directory('franka_description'), 'rviz',
-    #                          'visualize_franka.rviz')
-    # rviz = Node(
-    #          package='rviz2',
-    #          executable='rviz2',
-    #          name='rviz2',
-    #          arguments=['--display-config', rviz_file, '-f', 'world'],
-    # )
+    # Visualize in RViz che cera nel launch gazebo
+    rviz_file = os.path.join(get_package_share_directory('franka_description'), 'rviz',
+                             'visualize_franka.rviz')
+    rviz = Node(
+             package='rviz2',
+             executable='rviz2',
+             name='rviz2',
+             arguments=['--display-config', rviz_file, '-f', 'world'],
+    )
     
     load_joint_state_broadcaster = ExecuteProcess(
         cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
@@ -531,7 +386,8 @@ def prepare_launch_description():
         robot_state_publisher,
         ### rviz, ## ritornata se attivo rviz del file launch di gazebo
         rviz_node, # lo ritorno xk attivo rviz da moveit.launch
-        spawn,
+        #spawn,
+        SpownDelayed,
         
         RegisterEventHandler(
                 event_handler=OnProcessExit(
