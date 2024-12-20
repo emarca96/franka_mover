@@ -15,7 +15,8 @@ from geometry_msgs.msg import PoseStamped
 
 # Costanti per YOLO
 YOLO_VERSION = "11s"  # Versione YOLO specificata
-MODEL_PATH = f"/home/emanuele/ros2_franka_ws/src/franka_mover/runs_v{YOLO_VERSION}/detect/train/weights/best.pt"  # Percorso al modello YOLO
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))  # Directory dinamica dello script Python
+MODEL_PATH = os.path.join(SCRIPT_DIR, f"runs_v{YOLO_VERSION}/detect/train/weights/best.pt")  # Percorso relativo al modello
 CONFIDENCE_THRESHOLD = 0.5  # Valore minimo di confidenza per rilevare oggetti
 UNCERTAINTY_THRESHOLD = 0.2  # Percentuale del 10% della bounding box
 TRANSIENT_TIME = 10 # tempo in secondi dopo il quale la coordinata viene inviata a ros se persiste il cambiamento di posizione
