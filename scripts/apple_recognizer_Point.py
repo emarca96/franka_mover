@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 
