@@ -1,0 +1,8 @@
+comando di lancio:
+ros2 launch franka_mover mymoveit.launch.py robot_ip:=dont-care use_fake_hardware:=true --debug
+
+comando per pubblicare un punto PointStamped:
+
+ros2 topic pub --once /apple_coordinates_robot geometry_msgs/PointStamped "{header: {frame_id: 'fr3_link0'}, point: {x: 0.5, y: 0.9, z: 0.9}}"
+
+
