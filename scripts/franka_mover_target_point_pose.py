@@ -29,18 +29,18 @@ class MoveFR3(Node):
         # Configurazione della pose target
         target_pose = PoseStamped()
         target_pose.header.frame_id = 'fr3_link0'
-        target_pose.pose.position.x = 0.5
-        target_pose.pose.position.y = 0.1
-        target_pose.pose.position.z = 0.8
+        target_pose.pose.position.x = 0.7
+        target_pose.pose.position.y = 0.05
+        target_pose.pose.position.z = 0.7
         #Quaternione della posa   
         target_pose.pose.orientation.x = 0.0
-        target_pose.pose.orientation.y = 1.0
+        target_pose.pose.orientation.y = 0.0
         target_pose.pose.orientation.z = 0.0
-        target_pose.pose.orientation.w = 0.0
+        target_pose.pose.orientation.w = 1.0
         # Vincoli di posizione
         position_constraint = PositionConstraint()
         position_constraint.header.frame_id = target_pose.header.frame_id
-        position_constraint.link_name = 'fr3_link8'  # Link finale del manipolatore
+        position_constraint.link_name = 'fr3_hand_tcp'  # Link finale del manipolatore
         position_constraint.constraint_region.primitives.append(
             SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
         )
@@ -50,7 +50,7 @@ class MoveFR3(Node):
         # Vincoli di orientamento
         orientation_constraint = OrientationConstraint()
         orientation_constraint.header.frame_id = target_pose.header.frame_id
-        orientation_constraint.link_name = 'fr3_link8'
+        orientation_constraint.link_name = 'fr3_hand_tcp'
         orientation_constraint.orientation = target_pose.pose.orientation
         orientation_constraint.absolute_x_axis_tolerance = 0.1
         orientation_constraint.absolute_y_axis_tolerance = 0.1

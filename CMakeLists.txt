@@ -39,8 +39,8 @@ install(
     scripts/realsense_starter.py  # nodo che avvia la realsense
     
     scripts/apple_recognizer_noCv2_PoseStamped.py # python program che riconosce le mele e invia coordinate e posa topic PoseStamped. Cv2 è commentato. per vedere i frame della videocamera in tempo reale scommentare tutte righe con "Cv2."
-    
-    scripts/apple_recognizer_Point.py # python program che riconosce le mele e invia coordinate a topic Point
+
+    scripts/franka_mover_topic_PoseStamped_transformed.py # riceve da /apple_coordinates_realsense [PoseStamped] coordinate mela, le trasforma in sistema riferimento manipolatore robot, le invia a /apple_coordinates_robot [PointStamped] e muove il robot in questo punto  
     
   DESTINATION lib/${PROJECT_NAME}
 )

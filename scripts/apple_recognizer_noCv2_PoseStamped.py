@@ -10,7 +10,6 @@ from cv_bridge import CvBridge
 import cv2
 from ultralytics import YOLO
 import os
-from geometry_msgs.msg import Point
 import time 
 from geometry_msgs.msg import PoseStamped
 
@@ -29,7 +28,7 @@ class RealSenseViewer(Node):
         super().__init__('realsense_viewer')
 
         # Crea il publisher per le coordinate delle mele
-        self.apple_coordinates_publisher = self.create_publisher(PoseStamped, 'apple_coordinates', 10)
+        self.apple_coordinates_publisher = self.create_publisher(PoseStamped, 'apple_coordinates_realsense', 10)
         
         # Bridge per convertire da ROS Image a OpenCV
         self.bridge = CvBridge()
@@ -93,7 +92,7 @@ class RealSenseViewer(Node):
     
     def publish_apple_coordinates(self, coordinates):
         """
-        Pubblica le coordinate di una mela sul topic apple_coordinates.
+        Pubblica le coordinate di una mela sul topic apple_coordinates_realsense.
         :param coordinates: Tuple delle coordinate (Xcam, Ycam, Zcam).
         :return: True se il messaggio è stato pubblicato, False altrimenti.
         """
@@ -162,8 +161,8 @@ def draw_annotations(frame, results, uncertainty_threshold):
         center_color = (0, 255, 0)  # Verde
         uncertainty_color = (255,0,255) #viola
 
-        #cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), box_color, 1)
-        #cv2.circle(frame, (u, v), 2, center_color, -1)
+        cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), box_color, 1)
+        cv2.circle(frame, (u, v), 2, center_color, -1)
 
         label = f"{confidence:.1f}%"
         label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
@@ -175,8 +174,8 @@ def draw_annotations(frame, results, uncertainty_threshold):
         if label_rect_y_min < 0:
             label_rect_y_min = 0
 
-        #cv2.rectangle(frame, (label_rect_x_min, label_rect_y_min), (label_rect_x_max, label_rect_y_max), box_color, -1)
-        #cv2.putText(frame, label, (x_min + 5, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
+        cv2.rectangle(frame, (label_rect_x_min, label_rect_y_min), (label_rect_x_max, label_rect_y_max), box_color, -1)
+        cv2.putText(frame, label, (x_min + 5, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
 
         # Calcola il rettangolo di incertezza
         box_width = x_max - x_min
@@ -191,7 +190,7 @@ def draw_annotations(frame, results, uncertainty_threshold):
         uncertainty_y_max = v + uncertainty_height // 2
 
         # Disegna il rettangolo di incertezza
-        #cv2.rectangle(frame, (uncertainty_x_min, uncertainty_y_min), (uncertainty_x_max, uncertainty_y_max), uncertainty_color, 1)
+        cv2.rectangle(frame, (uncertainty_x_min, uncertainty_y_min), (uncertainty_x_max, uncertainty_y_max), uncertainty_color, 1)
 
 def get_bounding_box_centers(results):
     """
@@ -313,7 +312,7 @@ def main(args=None):
 
             # Procedi solo se entrambi gli stream sono disponibili
             if realsense_viewer.rgb_image is not None and realsense_viewer.depth_image is not None:
-                apple_coordinates = []
+                apple_coordinates_realsense = []
                 detected_frame, centers, confidences = detect_objects(
                     realsense_viewer.rgb_image.copy(), model, CONFIDENCE_THRESHOLD
                 )
@@ -321,10 +320,10 @@ def main(args=None):
                 for u, v in centers:
                     depth_value = realsense_viewer.depth_image[v, u]
                     Xcam, Ycam, Zcam = pixel_to_3d(u, v, depth_value, fx, fy, ppx, ppy)
-                    insert_sorted(apple_coordinates, (Xcam, Ycam, Zcam))
+                    insert_sorted(apple_coordinates_realsense, (Xcam, Ycam, Zcam))
 
-                if apple_coordinates:  # Se ci sono coordinate rilevate
-                    first_coordinate = apple_coordinates[0]  # Prendi la prima mela
+                if apple_coordinates_realsense:  # Se ci sono coordinate rilevate
+                    first_coordinate = apple_coordinates_realsense[0]  # Prendi la prima mela
                     first_sended = False #flag per tracciare se la mela è stata inviata
 
                     # Controlla se inviare o meno le coordinate: le invia se o x, o y, o z si discostano dalla soglia
@@ -361,9 +360,10 @@ def main(args=None):
                     variation_timestamp = None
                             
 
-                print_coordinates(apple_coordinates,confidences, first_sended)
-                #cv2.imshow('RGB Stream with YOLO', detected_frame)
-
+                print_coordinates(apple_coordinates_realsense,confidences, first_sended)
+                cv2.imshow('RGB Stream with YOLO', detected_frame)
+            
+            # Visualizzo Depth Map
             #if realsense_viewer.depth_image is not None:
                 #depth_colormap = cv2.applyColorMap(
                     #cv2.convertScaleAbs(realsense_viewer.depth_image, alpha=0.03),
@@ -371,13 +371,13 @@ def main(args=None):
                 #)
                 #cv2.imshow('Depth Stream', depth_colormap)
 
-            #if cv2.waitKey(1) & 0xFF == ord('q'):
-                #break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     except KeyboardInterrupt:
         pass
     finally:
-        #cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
         realsense_viewer.destroy_node()
         rclpy.shutdown()
 
