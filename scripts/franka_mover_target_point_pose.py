@@ -8,6 +8,7 @@ from moveit_msgs.msg import Constraints, PositionConstraint, OrientationConstrai
 from shape_msgs.msg import SolidPrimitive
 from rclpy.action import ActionClient
 from moveit_msgs.action import MoveGroup
+import numpy
 
 
 
@@ -34,9 +35,9 @@ class MoveFR3(Node):
         target_pose.pose.position.z = 0.7
         #Quaternione della posa   
         target_pose.pose.orientation.x = 0.0
-        target_pose.pose.orientation.y = 0.0
+        target_pose.pose.orientation.y = numpy.sqrt(2)/2
         target_pose.pose.orientation.z = 0.0
-        target_pose.pose.orientation.w = 1.0
+        target_pose.pose.orientation.w = numpy.sqrt(2)/2
         # Vincoli di posizione
         position_constraint = PositionConstraint()
         position_constraint.header.frame_id = target_pose.header.frame_id

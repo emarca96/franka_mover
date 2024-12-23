@@ -1,0 +1,109 @@
+teoria della trasfromazione pronto per overleaf:
+
+\section{Theory of Transformation: Rotation Matrices and Quaternions}
+
+This transformation involves the combination of two sequential rotations of a reference frame:
+\begin{enumerate}
+    \item A rotation around the \(Y\)-axis by a specified angle \(\theta\).
+    \item A rotation around the \(Z\)-axis by an angle \(\psi\), which is determined as the angle between a given vector and the \(X\)-axis.
+\end{enumerate}
+
+After constructing the combined rotation matrix, the corresponding quaternion is calculated to represent the same rotation in a compact and numerically stable form.
+
+\subsection{Rotation Matrices}
+
+Rotation matrices are fundamental tools in mechatronics for representing transformations of coordinates in three-dimensional space.
+
+\subsubsection*{Rotation Around the \(Y\)-Axis}
+
+A rotation by an angle \(\theta\) around the \(Y\)-axis is represented by the following matrix:
+\[
+R_Y(\theta) =
+\begin{bmatrix}
+\cos(\theta) & 0 & \sin(\theta) \\
+0 & 1 & 0 \\
+-\sin(\theta) & 0 & \cos(\theta)
+\end{bmatrix}
+\]
+This matrix:
+\begin{itemize}
+    \item Preserves the orientation of the \(Y\)-axis.
+    \item Rotates the \(XZ\)-plane around the \(Y\)-axis.
+\end{itemize}
+
+\subsubsection*{Rotation Around the \(Z\)-Axis}
+
+A rotation by an angle \(\psi\) around the \(Z\)-axis is represented by:
+\[
+R_Z(\psi) =
+\begin{bmatrix}
+\cos(\psi) & -\sin(\psi) & 0 \\
+\sin(\psi) & \cos(\psi) & 0 \\
+0 & 0 & 1
+\end{bmatrix}
+\]
+This matrix:
+\begin{itemize}
+    \item Preserves the orientation of the \(Z\)-axis.
+    \item Rotates the \(XY\)-plane around the \(Z\)-axis.
+\end{itemize}
+
+\subsubsection*{Combination of Rotations}
+
+When two rotations are applied sequentially, the resulting rotation matrix is obtained by multiplying the individual rotation matrices in the correct order:
+\[
+R_{\text{tot}} = R_Z(\psi) \cdot R_Y(\theta)
+\]
+
+\subsection{Calculation of the Angle \(\psi\)}
+
+The angle \(\psi\) is derived from the given vector \(\vec{v} = (x, y, z)\), with respect to the \(X\)-axis. The projection of \(\vec{v}\) on the \(XY\)-plane is \((x, y)\). The angle between this projection and the \(X\)-axis is calculated as:
+\[
+\psi = \arctan2(y, x)
+\]
+where \(\arctan2(y, x)\) correctly identifies the quadrant based on the signs of \(x\) and \(y\).
+
+\subsection{Quaternions}
+
+Quaternions provide a compact and singularity-free representation of rotations in three-dimensional space. A quaternion is defined as:
+\[
+q = (w, x, y, z)
+\]
+where:
+\begin{itemize}
+    \item \(w\) is the scalar component.
+    \item \(x, y, z\) are the vector components.
+\end{itemize}
+
+\subsubsection*{Conversion from Rotation Matrix to Quaternion}
+
+For a rotation matrix \(R = [r_{ij}]\), the corresponding quaternion is calculated as:
+\[
+w = \sqrt{1 + r_{11} + r_{22} + r_{33}} / 2
+\]
+\[
+x = \frac{r_{32} - r_{23}}{4w}, \quad y = \frac{r_{13} - r_{31}}{4w}, \quad z = \frac{r_{21} - r_{12}}{4w}
+\]
+
+This formula is valid when \(w > 0\). For other configurations, the components \(x, y, z, w\) can be calculated directly by choosing the maximum value among \(w, x, y, z\), ensuring numerical stability.
+
+\subsection{Complete Procedure}
+
+\begin{enumerate}
+    \item Compute the angle \(\psi\) between the vector \((x, y, z)\) and the \(X\)-axis using \(\arctan2(y, x)\).
+    \item Construct \(R_Y(\theta)\) for the rotation around \(Y\).
+    \item Construct \(R_Z(\psi)\) for the rotation around \(Z\).
+    \item Combine the rotations: \(R_{\text{tot}} = R_Z(\psi) \cdot R_Y(\theta)\).
+    \item Convert \(R_{\text{tot}}\) to a quaternion using the formulas above.
+\end{enumerate}
+
+\subsection{Applications}
+
+\begin{itemize}
+    \item \textbf{Robotics}: Control of manipulator motion and trajectory planning in operational space.
+    \item \textbf{Mechatronics}: Compact representation of rotations for embedded systems and simulations.
+    \item \textbf{Computer Vision}: Coordinate transformations for cameras and sensors.
+\end{itemize}
+
+This approach ensures numerical stability and avoids singularities, making it suitable for real-time applications in mechatronics and robotics.
+

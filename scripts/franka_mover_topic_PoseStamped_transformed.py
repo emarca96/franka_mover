@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, PointStamped,TransformStamped
+from geometry_msgs.msg import PoseStamped, PointStamped,TransformStamped, Quaternion
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import Constraints, PositionConstraint, OrientationConstraint
 from shape_msgs.msg import SolidPrimitive
@@ -10,6 +10,7 @@ from rclpy.action import ActionClient
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose_stamped
+import numpy as np
 
 
 # Variabili globali per i reference frame 
@@ -121,6 +122,62 @@ class MoveFR3(Node):
         except Exception as e:
             self.get_logger().error(f"Error during pose transformation: {str(e)}")
 
+    def obtain_quaternion(self, frame_name: str, rotation_angle_deg: float, vector_x: float, vector_y: float, vector_z: float) -> Quaternion:
+        """
+        Calcola un quaternione che rappresenta:
+        - Rotazione attorno all'asse Y di un angolo specificato.
+        - Rotazione attorno all'asse Z di un angolo derivato dall'orientamento del vettore rispetto all'asse X.
+        
+        Args:
+            frame_name (str): Nome del sistema di riferimento.
+            rotation_angle_deg (float): Angolo di rotazione attorno all'asse Y in gradi.
+            vector_x (float): Componente X del vettore.
+            vector_y (float): Componente Y del vettore.
+            vector_z (float): Componente Z del vettore.
+        
+        Returns:
+            Quaternion: Quaternione calcolato.
+        """
+        # Step 1: Calcola l'angolo del vettore rispetto all'asse X (Csi)
+        magnitude = np.sqrt(vector_x**2 + vector_y**2 + vector_z**2)
+        if magnitude == 0:
+            raise ValueError("Il vettore fornito ha magnitudine zero.")
+        
+        # Proiezione del vettore nel piano XY
+        Csi = np.arctan2(vector_y, vector_x)  # Angolo rispetto all'asse X in radianti
+
+        # Step 2: Rotazione attorno all'asse Y
+        rotation_angle_rad = np.deg2rad(rotation_angle_deg)  # Converti l'angolo in radianti
+        Ry = np.array([
+            [np.cos(rotation_angle_rad), 0, np.sin(rotation_angle_rad)],
+            [0, 1, 0],
+            [-np.sin(rotation_angle_rad), 0, np.cos(rotation_angle_rad)]
+        ])
+
+        # Step 3: Rotazione attorno all'asse Z di Csi
+        Rz = np.array([
+            [np.cos(Csi), -np.sin(Csi), 0],
+            [np.sin(Csi), np.cos(Csi), 0],
+            [0, 0, 1]
+        ])
+
+        # Step 4: Combinazione delle rotazioni
+        R = Rz @ Ry  # Applica prima la rotazione attorno a Y, poi attorno a Z
+
+        # Step 5: Calcola il quaternione corrispondente
+        qw = np.sqrt(1 + R[0, 0] + R[1, 1] + R[2, 2]) / 2
+        qx = (R[2, 1] - R[1, 2]) / (4 * qw)
+        qy = (R[0, 2] - R[2, 0]) / (4 * qw)
+        qz = (R[1, 0] - R[0, 1]) / (4 * qw)
+
+        # Step 6: Restituisci il quaternione in formato ROS2
+        quaternion = Quaternion()
+        quaternion.x = qx
+        quaternion.y = qy
+        quaternion.z = qz
+        quaternion.w = qw
+
+        return quaternion
 
 
     def send_goal(self):
@@ -154,10 +211,24 @@ class MoveFR3(Node):
         orientation_constraint = OrientationConstraint()
         orientation_constraint.header.frame_id = target_pose.header.frame_id
         orientation_constraint.link_name = 'fr3_hand_tcp'
-        orientation_constraint.orientation = target_pose.pose.orientation
-        orientation_constraint.absolute_x_axis_tolerance = 0.1
-        orientation_constraint.absolute_y_axis_tolerance = 0.1
-        orientation_constraint.absolute_z_axis_tolerance = 0.1
+
+        # Orientamento del end-effector
+
+        quaternion = self.obtain_quaternion(
+                target_pose.header.frame_id, 
+                90,
+                target_pose.pose.position.x,
+                target_pose.pose.position.y, 
+                target_pose.pose.position.z )
+                
+        orientation_constraint.orientation.x = quaternion.x
+        orientation_constraint.orientation.y = quaternion.y
+        orientation_constraint.orientation.z = quaternion.z
+        orientation_constraint.orientation.w = quaternion.w
+
+        orientation_constraint.absolute_x_axis_tolerance = 0.01
+        orientation_constraint.absolute_y_axis_tolerance = 0.01
+        orientation_constraint.absolute_z_axis_tolerance = 0.01
         orientation_constraint.weight = 1.0
 
         # Configurazione dei vincoli

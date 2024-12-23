@@ -3,6 +3,18 @@ ros2 launch franka_mover mymoveit.launch.py robot_ip:=dont-care use_fake_hardwar
 
 comando per pubblicare un punto PointStamped:
 
-ros2 topic pub --once /apple_coordinates_robot geometry_msgs/PointStamped "{header: {frame_id: 'fr3_link0'}, point: {x: 0.5, y: 0.9, z: 0.9}}"
+ros2 topic pub --once /apple_coordinates_realsense geometry_msgs/PointStamped "{header: {frame_id: 'fr3_link0'}, point: {x: 0.03, y: 0.2, z: 0.1}}"
+
+comando per pubblicare punto PoseStamped RANDOM
+
+x=$(python3 -c "import random; print(random.uniform(0.1, 0.4) * random.choice([-1, 1]))")
+y=$(python3 -c "import random; print(random.uniform(0.1, 0.4) * random.choice([-1, 1]))")
+z=$(python3 -c "import random; print(random.uniform(0.1, 0.4) * random.choice([-1, 1]))")
+ros2 topic pub --once /apple_coordinates_realsense geometry_msgs/msg/PoseStamped "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'camera_depth_optical_frame'}, pose: {position: {x: $x, y: $y, z: $z}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
+
+Comando per allineare i frames fr3_link0 e camera_link (statica)
+
+ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 camera_link fr3_link0
+
 
 
