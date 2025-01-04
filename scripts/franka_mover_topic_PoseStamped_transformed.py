@@ -10,12 +10,14 @@ from rclpy.action import ActionClient
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose_stamped
+from std_msgs.msg import Bool # per avvisare se il robot è ready o busy
 import numpy as np
 
 
-# Variabili globali per i reference frame 
+# Costanti globali per i reference frame 
 START_RF = "camera_link"  # Nome RF centrale videocamera 
 TARGET_RF = "fr3_link0"  # Nome RF base del robot
+HAND_RF = "fr3_hand_tcp"
 # DEPTH_VIEW_RF = "camera_depth_optical_frame"  # Nome RF riferimento per le depth images
 translation_x = 0.0  # Traslazione in x da START_RF a TARGET_RF
 translation_y = 0.0  # Traslazione in y da START_RF a TARGET_RF
@@ -24,6 +26,15 @@ rotation_x = 0.0  # Rotazione x da START_RF a TARGET_RF
 rotation_y = 0.0  # Rotazione y da START_RF a TARGET_RF
 rotation_z = 0.0  # Rotazione z da START_RF a TARGET_RF
 rotation_w = 1.0  # Rotazione w da START_RF a TARGET_RF
+##########################################
+# Costanti globali per il rilascio della mela sul cesto (posizione e orientamento di HAND_RF)
+to_basket_position_x = -0.5
+to_basket_position_y = 0.0
+to_basket_position_z = 0.1
+to_basket_orientation_x = 0.0
+to_basket_orientation_y = -np.sqrt(2)/2
+to_basket_orientation_z = 0.0
+to_basket_orientation_w = np.sqrt(2)/2
 ##########################################
 
 class MoveFR3(Node):
@@ -55,7 +66,9 @@ class MoveFR3(Node):
         #Publisher per pubblicare coordinate mela trasformate su /apple_coordinates_robot (PointStamped)
         self.robot_coordinates_publisher = self.create_publisher(PointStamped, '/apple_coordinates_robot', 10)
 
-
+        self.status_publisher = self.create_publisher(Bool, '/robot_status', 10)
+        self.robot_is_ready = True  # Inizialmente il robot è pronto
+        self.status_publisher.publish(Bool(data=self.robot_is_ready))
 
     def broadcast_static_transform(self):
         """Definisce e pubblica la trasformazione statica tra START_RF e TARGET_RF."""
@@ -179,9 +192,13 @@ class MoveFR3(Node):
 
         return quaternion
 
-
     def send_goal(self):
         """Invia un goal al server MoveGroup utilizzando la posizione target ricevuta."""
+
+        self.robot_is_ready = False #il robot non è piu pronto, ma busy
+        self.status_publisher.publish(Bool(data=self.robot_is_ready))
+
+
         if not self.target_pose:
             self.get_logger().warn('No target pose received yet. Waiting...')
             return
@@ -200,7 +217,7 @@ class MoveFR3(Node):
         # Vincoli di posizione
         position_constraint = PositionConstraint()
         position_constraint.header.frame_id = target_pose.header.frame_id
-        position_constraint.link_name = 'fr3_hand_tcp'  # Link finale del manipolatore
+        position_constraint.link_name = HAND_RF  # Link finale del manipolatore
         position_constraint.constraint_region.primitives.append(
             SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
         )
@@ -210,10 +227,9 @@ class MoveFR3(Node):
         # Vincoli di orientamento
         orientation_constraint = OrientationConstraint()
         orientation_constraint.header.frame_id = target_pose.header.frame_id
-        orientation_constraint.link_name = 'fr3_hand_tcp'
+        orientation_constraint.link_name = HAND_RF
 
         # Orientamento del end-effector
-
         quaternion = self.obtain_quaternion(
                 target_pose.header.frame_id, 
                 90,
@@ -263,16 +279,121 @@ class MoveFR3(Node):
             result = future.result().result
             if result.error_code.val == 1:  # 1 indica SUCCESSO nella MoveIt error codes
                 self.get_logger().info('Goal reached successfully!')
+                self.get_logger().info('Need to grasp the apple')
+
+                # FACCIO IL GRASPING
+                ####### DA METTERE A GRASPING AVVENUTO (PER ORA METTO QUI)
+                self.go_to_basket() # Mando il robot al cesto
             else:
                 self.get_logger().error(f'MoveGroup failed with error code: {result.error_code.val}')
+               
+                #il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
+                #attendo prossime coordinate
+                self.robot_is_ready = True
+                self.status_publisher.publish(Bool(data=self.robot_is_ready))
+
         except Exception as e:
             self.get_logger().error(f"Result callback error: {str(e)}")
+            
+            #il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
+            #attendo nuove coordinate
+            self.robot_is_ready = True
+            self.status_publisher.publish(Bool(data=self.robot_is_ready))
+
+    
+    def go_to_basket(self):
+        """Sposta il robot alla posizione del basket specificata nelle costanti."""
+        self.get_logger().info('Moving to basket...')
+        basket_goal = MoveGroup.Goal()
+        basket_goal.request.group_name = 'fr3_arm'
+
+        # Configurazione della posa target per il basket
+        basket_pose = PoseStamped()
+        basket_pose.header.frame_id = TARGET_RF
+        basket_pose.pose.position.x = to_basket_position_x
+        basket_pose.pose.position.y = to_basket_position_y
+        basket_pose.pose.position.z = to_basket_position_z
+        basket_pose.pose.orientation.x = to_basket_orientation_x
+        basket_pose.pose.orientation.y = to_basket_orientation_y
+        basket_pose.pose.orientation.z = to_basket_orientation_z
+        basket_pose.pose.orientation.w = to_basket_orientation_w
+
+        # Configurazione dei vincoli
+        position_constraint = PositionConstraint()
+        position_constraint.header.frame_id = basket_pose.header.frame_id
+        position_constraint.link_name = HAND_RF
+        position_constraint.constraint_region.primitives.append(
+            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
+        )
+        position_constraint.constraint_region.primitive_poses.append(basket_pose.pose)
+        position_constraint.weight = 1.0
+
+        orientation_constraint = OrientationConstraint()
+        orientation_constraint.header.frame_id = basket_pose.header.frame_id
+        orientation_constraint.link_name = HAND_RF
+        orientation_constraint.orientation = basket_pose.pose.orientation
+        orientation_constraint.absolute_x_axis_tolerance = 0.01
+        orientation_constraint.absolute_y_axis_tolerance = 0.01
+        orientation_constraint.absolute_z_axis_tolerance = 0.01
+        orientation_constraint.weight = 1.0
+
+        constraints = Constraints()
+        constraints.position_constraints.append(position_constraint)
+        constraints.orientation_constraints.append(orientation_constraint)
+        basket_goal.request.goal_constraints.append(constraints)
+
+        # Invio del goal
+        self.get_logger().info('Sending goal to basket...')
+        future = self.action_client.send_goal_async(basket_goal)
+        future.add_done_callback(self.basket_response_callback)
+
+    def basket_response_callback(self, future):
+        """Gestisce la risposta del server MoveGroup al goal per il basket."""
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                self.get_logger().error('Basket goal rejected.')
+                return
+            self.get_logger().info('Basket goal accepted. Waiting for result...')
+            goal_handle.get_result_async().add_done_callback(self.basket_result_callback)
+        except Exception as e:
+            self.get_logger().error(f"Error sending basket goal: {e}")
+
+    def basket_result_callback(self, future):
+        """Gestisce il risultato del goal per il basket."""
+        try:
+            result = future.result().result
+            if result.error_code.val == 1:  # Success
+                self.get_logger().info('Basket goal reached successfully!')
+
+                #DA METTERE DOPO IL RILASCIO DELLA MELA (PER ORA METTO QUI)
+                #il robot ha raggiunto l'obiettivo ed è libero
+                self.robot_is_ready = True
+                self.status_publisher.publish(Bool(data=self.robot_is_ready))      
+
+            else:
+                self.get_logger().error(f'Basket goal failed with error code: {result.error_code.val}')
+                self.get_logger().error(f'Robot grasped the apple, but can''t go to the basket: {result.error_code.val}')
+
+                ## LA MELA DEVE ESSERE RILASCIATA
+                # rimetto il robot libero
+                self.robot_is_ready = True
+                self.status_publisher.publish(Bool(data=self.robot_is_ready))
+
+        except Exception as e:
+            self.get_logger().error(f"Error receiving basket goal result: {e}")
+            self.get_logger().error(f'Robot grasped the apple, but can''t go to the basket: {result.error_code.val}')
+            
+            ## LA MELA DEVE ESSERE RILASCIATA
+            # rimetto il robot libero
+            self.robot_is_ready = True
+            self.status_publisher.publish(Bool(data=self.robot_is_ready))
+
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = MoveFR3()
-
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

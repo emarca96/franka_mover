@@ -30,8 +30,8 @@ class MoveFR3(Node):
         # Configurazione della pose target
         target_pose = PoseStamped()
         target_pose.header.frame_id = 'fr3_link0'
-        target_pose.pose.position.x = 0.7
-        target_pose.pose.position.y = 0.05
+        target_pose.pose.position.x = -0.5
+        target_pose.pose.position.y = 0.0
         target_pose.pose.position.z = 0.7
         #Quaternione della posa   
         target_pose.pose.orientation.x = 0.0

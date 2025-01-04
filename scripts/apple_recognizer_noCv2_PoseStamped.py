@@ -12,6 +12,7 @@ from ultralytics import YOLO
 import os
 import time 
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Bool
 
 
 # Costanti per YOLO
@@ -63,6 +64,22 @@ class RealSenseViewer(Node):
         # Flag per indicare se i dati sono stati ricevuti
         self.rgb_received = False
         self.depth_received = False
+
+        self.robot_ready = True  # Stato iniziale del robot
+        self.status_subscription = self.create_subscription(
+            Bool,
+            '/robot_status',
+            self.status_callback,
+            10
+        )
+
+    def status_callback(self, msg):
+        self.robot_ready = msg.data
+        if self.robot_ready:
+            self.get_logger().info("Robot ready, stream of coordinates started")
+        else:
+            self.get_logger().info("Robot busy, stream of coordinates stopped")
+
 
     def rgb_callback(self, msg):
         """Callback per lo stream RGB"""
@@ -288,6 +305,9 @@ def main(args=None):
         while rclpy.ok():
             rclpy.spin_once(realsense_viewer)
 	        
+            if not realsense_viewer.robot_ready:
+                continue  # Salta questa iterazione del ciclo se il robot non è pronto
+
             first_sended = False
 	    
             # Gestione dello stato RGB
