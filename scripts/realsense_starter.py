@@ -24,6 +24,7 @@ class RealSenseNode(Node):
             'color_height': 480,
             'color_fps': 15.0,
             'align_depth.enable': True,
+            'pointcloud.enable':True
         }
 
         # Path al file launch di realsense-ros
