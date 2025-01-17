@@ -28,6 +28,7 @@ rotation_z = 0.0  # Rotazione z da START_RF a TARGET_RF
 rotation_w = 1.0  # Rotazione w da START_RF a TARGET_RF
 ##########################################
 # Costanti globali per il rilascio della mela sul cesto (posizione e orientamento di HAND_RF)
+# Le posizioni e orientamento sono rispetto a TARGET_RG
 to_basket_position_x = -0.5
 to_basket_position_y = 0.0
 to_basket_position_z = 0.1
