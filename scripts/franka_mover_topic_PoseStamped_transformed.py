@@ -2,9 +2,9 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, PointStamped,TransformStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, PointStamped,TransformStamped, Quaternion, Pose
 from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import Constraints, PositionConstraint, OrientationConstraint
+from moveit_msgs.msg import Constraints, PositionConstraint, OrientationConstraint, CollisionObject
 from shape_msgs.msg import SolidPrimitive
 from rclpy.action import ActionClient
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
@@ -12,6 +12,7 @@ from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose_stamped
 from std_msgs.msg import Bool # per avvisare se il robot è ready o busy
 import numpy as np
+import time
 
 
 # Costanti globali per i reference frame 
@@ -31,12 +32,21 @@ rotation_w = 1.0  # Rotazione w da START_RF a TARGET_RF
 # Le posizioni e orientamento sono rispetto a TARGET_RF
 to_basket_position_x = -0.5
 to_basket_position_y = 0.0
-to_basket_position_z = 0.1
+to_basket_position_z = 0.2
 to_basket_orientation_x = 0.0
 to_basket_orientation_y = -np.sqrt(2)/2
 to_basket_orientation_z = 0.0
 to_basket_orientation_w = np.sqrt(2)/2
 ##########################################
+# Costanti globali per la posizione e dimensioni dell'ostacolo BOX rispetto a TARGET_RF
+OBSTACLE_SIZE_X = 0.2
+OBSTACLE_SIZE_Y = 0.2
+OBSTACLE_SIZE_Z = 0.8
+OBSTACLE_POS_X = 0.2
+OBSTACLE_POS_Y = 0.2
+OBSTACLE_POS_Z = -0.1
+############################################
+
 
 class MoveFR3(Node):
     def __init__(self):
@@ -71,6 +81,28 @@ class MoveFR3(Node):
         self.robot_is_ready = True  # Inizialmente il robot è pronto
         self.status_publisher.publish(Bool(data=self.robot_is_ready))
 
+        # Publisher per gli oggetti di collisione di MoveIt
+        self.collision_object_publisher = self.create_publisher(
+            CollisionObject, 
+            "/collision_object",
+            #"/planning_scene", 
+            10
+        )
+
+        # Creazione e pubblicazione dell'oggetto di collisione
+        collision_table = self.add_collision_object(
+            OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z, 
+            OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z
+        )
+
+        # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
+        time.sleep(0.5)
+        self.get_logger().info("Publishing collision object...")
+        self.collision_object_publisher.publish(collision_table)
+        time.sleep(1.0)
+        self.get_logger().info("Collision object published!")
+
+
     def broadcast_static_transform(self):
         """Definisce e pubblica la trasformazione statica tra START_RF e TARGET_RF."""
         static_broadcaster = StaticTransformBroadcaster(self)
@@ -94,6 +126,44 @@ class MoveFR3(Node):
         # Pubblica la trasformazione statica
         static_broadcaster.sendTransform(static_transform)
         self.get_logger().info(f"Static transform published: {START_RF} -> {TARGET_RF}")
+    
+    def add_collision_object(self, size_x, size_y, size_z, pos_x, pos_y, pos_z):
+        """
+        Crea e restituisce un oggetto di collisione di tipo BOX per MoveIt.
+
+        Args:
+            size_x (float): Dimensione lungo l'asse X.
+            size_y (float): Dimensione lungo l'asse Y.
+            size_z (float): Dimensione lungo l'asse Z.
+            pos_x (float): Posizione lungo l'asse X.
+            pos_y (float): Posizione lungo l'asse Y.
+            pos_z (float): Posizione lungo l'asse Z.
+
+        Returns:
+            CollisionObject: Oggetto di collisione pronto per essere aggiunto alla scena di MoveIt.
+        """
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = TARGET_RF
+        collision_object.id = "collision_table"
+
+        # Definizione della forma del BOX
+        box_primitive = SolidPrimitive()
+        box_primitive.type = SolidPrimitive.BOX
+        box_primitive.dimensions = [size_x, size_y, size_z]
+
+        # Definizione della posa del BOX
+        box_pose = Pose()
+        box_pose.position.x = pos_x
+        box_pose.position.y = pos_y
+        box_pose.position.z = pos_z
+        box_pose.orientation.w = 1.0  # Nessuna rotazione
+
+        # Aggiunge la forma e la posa all'oggetto di collisione
+        collision_object.primitives.append(box_primitive)
+        collision_object.primitive_poses.append(box_pose)
+        collision_object.operation = CollisionObject.ADD
+
+        return collision_object
 
     def apple_callback(self, msg: PoseStamped):
         """Callback per il topic /apple_coordinates_realsense."""
@@ -200,9 +270,11 @@ class MoveFR3(Node):
         Args:
             pos_x, pos_y, pos_z (float): Coordinate della posizione target.
             orient_x, orient_y, orient_z, orient_w (float): Quaternione di orientamento.
+            gli oggetti di collisione sono automaticamente presi in considerazione da moveit !
 
         Returns:
-            Constraints: Oggetto contenente vincoli di posizione e orientamento.
+            Constraints: Oggetto contenente vincoli di posizione, orientamento.
+            I vincoli di collisione sono gia tenuti conto dalla scena moveit!
         """
         constraints = Constraints()
 
@@ -236,6 +308,7 @@ class MoveFR3(Node):
         orientation_constraint.absolute_z_axis_tolerance = 0.01
         orientation_constraint.weight = 1.0
 
+        #Aggiungo i vincoli
         constraints.position_constraints.append(position_constraint)
         constraints.orientation_constraints.append(orientation_constraint)
 
@@ -271,7 +344,7 @@ class MoveFR3(Node):
                 target_pose.pose.position.y, 
                 target_pose.pose.position.z )
                 
-        # Crea vincoli di movimento
+        # Crea vincoli di movimento 
         constraints = self.make_constraints(
                 self.target_pose.pose.position.x,
                 self.target_pose.pose.position.y,
