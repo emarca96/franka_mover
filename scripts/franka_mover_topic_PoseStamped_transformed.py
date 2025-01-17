@@ -191,6 +191,54 @@ class MoveFR3(Node):
         quaternion.w = qw
 
         return quaternion
+    
+    def make_constraints(self,pos_x, pos_y, pos_z, orient_x, orient_y, orient_z, orient_w):
+        """
+        Crea e restituisce vincoli di posizione e orientamento per il movimento del robot.
+
+        Args:
+            pos_x, pos_y, pos_z (float): Coordinate della posizione target.
+            orient_x, orient_y, orient_z, orient_w (float): Quaternione di orientamento.
+
+        Returns:
+            Constraints: Oggetto contenente vincoli di posizione e orientamento.
+        """
+        constraints = Constraints()
+
+        # Vincolo di posizione
+        position_constraint = PositionConstraint()
+        position_constraint.header.frame_id = TARGET_RF
+        position_constraint.link_name = HAND_RF
+        position_constraint.constraint_region.primitives.append(
+            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
+        )
+
+        position_pose = PoseStamped()
+        position_pose.header.frame_id = TARGET_RF
+        position_pose.pose.position.x = pos_x
+        position_pose.pose.position.y = pos_y
+        position_pose.pose.position.z = pos_z
+
+        position_constraint.constraint_region.primitive_poses.append(position_pose.pose)
+        position_constraint.weight = 1.0
+
+        # Vincolo di orientamento
+        orientation_constraint = OrientationConstraint()
+        orientation_constraint.header.frame_id = TARGET_RF
+        orientation_constraint.link_name = HAND_RF
+        orientation_constraint.orientation.x = orient_x
+        orientation_constraint.orientation.y = orient_y
+        orientation_constraint.orientation.z = orient_z
+        orientation_constraint.orientation.w = orient_w
+        orientation_constraint.absolute_x_axis_tolerance = 0.01
+        orientation_constraint.absolute_y_axis_tolerance = 0.01
+        orientation_constraint.absolute_z_axis_tolerance = 0.01
+        orientation_constraint.weight = 1.0
+
+        constraints.position_constraints.append(position_constraint)
+        constraints.orientation_constraints.append(orientation_constraint)
+
+        return constraints
 
     def send_goal(self):
         """Invia un goal al server MoveGroup utilizzando la posizione target ricevuta."""
@@ -214,21 +262,6 @@ class MoveFR3(Node):
         target_pose = self.target_pose
         target_pose.header.frame_id = TARGET_RF  # Assicurarsi che il frame sia corretto
 
-        # Vincoli di posizione
-        position_constraint = PositionConstraint()
-        position_constraint.header.frame_id = target_pose.header.frame_id
-        position_constraint.link_name = HAND_RF  # Link finale del manipolatore
-        position_constraint.constraint_region.primitives.append(
-            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
-        )
-        position_constraint.constraint_region.primitive_poses.append(target_pose.pose)
-        position_constraint.weight = 1.0
-
-        # Vincoli di orientamento
-        orientation_constraint = OrientationConstraint()
-        orientation_constraint.header.frame_id = target_pose.header.frame_id
-        orientation_constraint.link_name = HAND_RF
-
         # Orientamento del end-effector
         quaternion = self.obtain_quaternion(
                 target_pose.header.frame_id, 
@@ -237,21 +270,14 @@ class MoveFR3(Node):
                 target_pose.pose.position.y, 
                 target_pose.pose.position.z )
                 
-        orientation_constraint.orientation.x = quaternion.x
-        orientation_constraint.orientation.y = quaternion.y
-        orientation_constraint.orientation.z = quaternion.z
-        orientation_constraint.orientation.w = quaternion.w
-
-        orientation_constraint.absolute_x_axis_tolerance = 0.01
-        orientation_constraint.absolute_y_axis_tolerance = 0.01
-        orientation_constraint.absolute_z_axis_tolerance = 0.01
-        orientation_constraint.weight = 1.0
-
-        # Configurazione dei vincoli
-        constraints = Constraints()
-        constraints.position_constraints.append(position_constraint)
-        constraints.orientation_constraints.append(orientation_constraint)
-
+        # Crea vincoli di movimento
+        constraints = self.make_constraints(
+                self.target_pose.pose.position.x,
+                self.target_pose.pose.position.y,
+                self.target_pose.pose.position.z,
+                quaternion.x, quaternion.y, quaternion.z, quaternion.w
+                )
+        
         # Imposta i vincoli come obiettivo
         goal_msg.request.goal_constraints.append(constraints)
 
@@ -307,39 +333,17 @@ class MoveFR3(Node):
         basket_goal = MoveGroup.Goal()
         basket_goal.request.group_name = 'fr3_arm'
 
-        # Configurazione della posa target per il basket
-        basket_pose = PoseStamped()
-        basket_pose.header.frame_id = TARGET_RF
-        basket_pose.pose.position.x = to_basket_position_x
-        basket_pose.pose.position.y = to_basket_position_y
-        basket_pose.pose.position.z = to_basket_position_z
-        basket_pose.pose.orientation.x = to_basket_orientation_x
-        basket_pose.pose.orientation.y = to_basket_orientation_y
-        basket_pose.pose.orientation.z = to_basket_orientation_z
-        basket_pose.pose.orientation.w = to_basket_orientation_w
+        # Crea vincoli di movimento per la posizione del cesto
+        constraints = self.make_constraints(
+                to_basket_position_x,
+                to_basket_position_y,
+                to_basket_position_z,
+                to_basket_orientation_x,
+                to_basket_orientation_y,
+                to_basket_orientation_z,
+                to_basket_orientation_w
+            )
 
-        # Configurazione dei vincoli
-        position_constraint = PositionConstraint()
-        position_constraint.header.frame_id = basket_pose.header.frame_id
-        position_constraint.link_name = HAND_RF
-        position_constraint.constraint_region.primitives.append(
-            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
-        )
-        position_constraint.constraint_region.primitive_poses.append(basket_pose.pose)
-        position_constraint.weight = 1.0
-
-        orientation_constraint = OrientationConstraint()
-        orientation_constraint.header.frame_id = basket_pose.header.frame_id
-        orientation_constraint.link_name = HAND_RF
-        orientation_constraint.orientation = basket_pose.pose.orientation
-        orientation_constraint.absolute_x_axis_tolerance = 0.01
-        orientation_constraint.absolute_y_axis_tolerance = 0.01
-        orientation_constraint.absolute_z_axis_tolerance = 0.01
-        orientation_constraint.weight = 1.0
-
-        constraints = Constraints()
-        constraints.position_constraints.append(position_constraint)
-        constraints.orientation_constraints.append(orientation_constraint)
         basket_goal.request.goal_constraints.append(constraints)
 
         # Invio del goal
