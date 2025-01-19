@@ -20,9 +20,9 @@ START_RF = "camera_link"  # Nome RF centrale videocamera
 TARGET_RF = "fr3_link0"  # Nome RF base del robot
 HAND_RF = "fr3_hand_tcp"
 # DEPTH_VIEW_RF = "camera_depth_optical_frame"  # Nome RF riferimento per le depth images
-translation_x = 0.0  # Traslazione in x da START_RF a TARGET_RF
+translation_x = 0.4  # Traslazione in x da START_RF a TARGET_RF
 translation_y = 0.0  # Traslazione in y da START_RF a TARGET_RF
-translation_z = 0.0  # Traslazione in z da START_RF a TARGET_RF
+translation_z = -0.1  # Traslazione in z da START_RF a TARGET_RF
 rotation_x = 0.0  # Rotazione x da START_RF a TARGET_RF
 rotation_y = 0.0  # Rotazione y da START_RF a TARGET_RF
 rotation_z = 0.0  # Rotazione z da START_RF a TARGET_RF
@@ -39,11 +39,11 @@ to_basket_orientation_z = 0.0
 to_basket_orientation_w = np.sqrt(2)/2
 ##########################################
 # Costanti globali per la posizione e dimensioni dell'ostacolo BOX rispetto a TARGET_RF
-OBSTACLE_SIZE_X = 0.2
-OBSTACLE_SIZE_Y = 0.2
-OBSTACLE_SIZE_Z = 0.8
-OBSTACLE_POS_X = 0.2
-OBSTACLE_POS_Y = 0.2
+OBSTACLE_SIZE_X = 0.8
+OBSTACLE_SIZE_Y = 1.2
+OBSTACLE_SIZE_Z = 0.2
+OBSTACLE_POS_X = 0.0
+OBSTACLE_POS_Y = 0.0
 OBSTACLE_POS_Z = -0.1
 ############################################
 
