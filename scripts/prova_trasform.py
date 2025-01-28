@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from tf2_ros import Buffer, TransformListener
-from tf2_geometry_msgs import do_transform_pose_stamped ###### TRUCCO !!!! non solo do_trasform_pose!!!!!
+from tf2_geometry_msgs import do_transform_pose_stamped 
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
 class PoseTransformer(Node):

@@ -42,6 +42,10 @@ install(
 
     scripts/franka_mover_topic_PoseStamped_transformed.py # riceve da /apple_coordinates_realsense [PoseStamped] coordinate mela, le trasforma in sistema riferimento manipolatore robot, le invia a /apple_coordinates_robot [PointStamped] e muove il robot in questo punto  
     
+    scripts/franka_gripper.py #aziona il gripper del FR3
+    
+    scripts/prova_trasform.py  # trasformazione statica tra camera_link e fr3_link0
+    
   DESTINATION lib/${PROJECT_NAME}
 )
 

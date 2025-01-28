@@ -1,0 +1,231 @@
+import numpy as np
+import cv2
+import cv2.aruco as aruco
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, CameraInfo
+from cv_bridge import CvBridge
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
+from scipy.spatial.transform import Rotation as R
+import time
+import sys
+
+ARUCO_SIZE = 0.042  # Dimensione del codice ArUco (42 mm)
+DISPLAY_SCALE = 0.5  # Fattore di riduzione della finestra di visualizzazione
+TIME_WINDOW = 1.0  # Secondi per la media mobile
+
+# Aruco rispetto a fr3_hand_tcp con quaternioni (da misurare manualmente)
+Y_ROT = 270.0  # Rotazione 3/2*pi
+X_ROT = 0.0
+Z_ROT = 90.0  # Rotazione - pi/2
+X_TRANSLATION = -0.009  # Traslazione -9mm
+Y_TRANSLATION = 0.0
+Z_TRANSLATION = 0.0
+
+class ArucoPosePublisher(Node):
+    def __init__(self):
+        super().__init__('aruco_pose_publisher')
+
+        # Publisher per la trasformazione ArUco → camera
+        self.pose_pub = self.create_publisher(TransformStamped, '/aruco_pose', 10)
+
+        # Broadcaster per le trasformazioni TF2
+        self.tf_broadcaster = TransformBroadcaster(self)
+        self.static_tf_broadcaster = StaticTransformBroadcaster(self)
+
+        # Pubblica la trasformazione statica tra `fr3_hand_tcp` e `aruco_marker`
+        self.pub_static_fr3_aruco()
+
+        # Dizionario ArUco
+        self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
+        self.aruco_params = aruco.DetectorParameters()
+
+        # Bridge per conversione immagine ROS → OpenCV
+        self.bridge = CvBridge()
+
+        # Sottoscrizione ai topic della telecamera con QoS per minore latenza
+        qos = rclpy.qos.qos_profile_sensor_data
+
+        self.rgb_subscription = self.create_subscription(
+            Image, '/camera/camera/color/image_raw', self.rgb_callback, qos)
+
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo, '/camera/camera/color/camera_info', self.camera_info_callback, qos)
+
+        # Variabili per immagazzinare i dati della telecamera
+        self.rgb_image = None
+        self.intrinsics = None
+
+        # Buffer per la media delle trasformazioni
+        self.transform_buffer = []  # Lista di tuple (timestamp, posizione, orientazione)
+
+        # Timer per pubblicare la trasformazione statica ogni 5 secondi
+        self.create_timer(TIME_WINDOW, self.publish_static_transform)
+
+    def compute_quaternion_from_euler(self, y_rot, x_rot, z_rot):
+        """
+        Calcola i quaternioni a partire dagli angoli di rotazione specificati in gradi.
+        :param y_rot: Rotazione attorno all'asse Y in gradi
+        :param x_rot: Rotazione attorno all'asse Z in gradi
+        :return: Quaternione (qx, qy, qz, qw)
+        """
+        # Converto gli angoli da gradi a radianti
+        y_rad = np.radians(y_rot)
+        x_rot = np.radians(x_rot)
+        z_rad = np.radians(z_rot)
+
+        # Crea la rotazione combinata usando SciPy (ordine: XYZ)
+        rotation = R.from_euler('YXZ', [y_rad, x_rot, z_rad], degrees=False)
+
+        # Converto la rotazione in quaternione
+        quaternion = rotation.as_quat()  # [qx, qy, qz, qw]
+
+        return quaternion
+
+    def pub_static_fr3_aruco(self):
+        """Pubblica una trasformazione statica tra `fr3_hand_tcp` e `aruco_marker`."""
+        static_transform = TransformStamped()
+        static_transform.header.stamp = self.get_clock().now().to_msg()
+        static_transform.header.frame_id = "fr3_hand_tcp"  
+        static_transform.child_frame_id = "aruco_marker"
+
+        # Posizione fissa rispetto al TCP (da calibrare)
+        static_transform.transform.translation.x = X_TRANSLATION  
+        static_transform.transform.translation.y = Y_TRANSLATION
+        static_transform.transform.translation.z = Z_TRANSLATION
+
+        # Calcola i quaternioni dalla rotazione specificata
+        quat = self.compute_quaternion_from_euler(Y_ROT, X_ROT, Z_ROT)
+
+        # Assegna i valori alla trasformazione
+        static_transform.transform.rotation.x = quat[0]
+        static_transform.transform.rotation.y = quat[1]
+        static_transform.transform.rotation.z = quat[2]
+        static_transform.transform.rotation.w = quat[3]
+
+
+        self.static_tf_broadcaster.sendTransform(static_transform)
+        self.get_logger().info("[TF] Pubblicata trasformazione statica: fr3_hand_tcp → aruco_marker")
+
+
+        
+    def rgb_callback(self, msg):
+        """Elabora il frame RGB solo se gli intrinseci sono disponibili."""
+        if self.intrinsics is None:
+            return
+
+        try:
+            self.rgb_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            self.process_frame()
+        except Exception as e:
+            self.get_logger().error(f"Errore nella conversione RGB: {e}")
+
+    def camera_info_callback(self, msg):
+        """Memorizza i parametri intrinseci della telecamera."""
+        if self.intrinsics is None:
+            self.intrinsics = {
+                'fx': msg.k[0], 'fy': msg.k[4], 'ppx': msg.k[2], 'ppy': msg.k[5]
+            }
+            self.get_logger().info("[INFO] Parametri intrinseci ricevuti.")
+
+    def process_frame(self):
+        """Rileva il marker ArUco e salva la trasformazione in un buffer per la media mobile."""
+        if self.rgb_image is None:
+            return
+
+        gray = cv2.cvtColor(self.rgb_image, cv2.COLOR_BGR2GRAY)
+
+        corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.aruco_params)
+
+        if ids is not None:
+            aruco.drawDetectedMarkers(self.rgb_image, corners, ids)
+
+            camera_matrix = np.array([
+                [self.intrinsics['fx'], 0, self.intrinsics['ppx']],
+                [0, self.intrinsics['fy'], self.intrinsics['ppy']],
+                [0, 0, 1]
+            ])
+            rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(corners, ARUCO_SIZE, camera_matrix, np.zeros(5))
+
+            for rvec, tvec in zip(rvecs, tvecs):
+                cv2.drawFrameAxes(self.rgb_image, camera_matrix, np.zeros(5), rvec, tvec, 0.03)
+
+                rot_matrix, _ = cv2.Rodrigues(rvec)
+                quat = R.from_matrix(rot_matrix).as_quat()
+
+                # Aggiungo la nuova trasformazione al buffer
+                timestamp = time.time()
+                self.transform_buffer.append((timestamp, tvec.flatten(), quat))
+
+                # Rimuovi trasformazioni più vecchie di 5 secondi
+                self.transform_buffer = [
+                    (t, pos, rot) for t, pos, rot in self.transform_buffer if timestamp - t <= TIME_WINDOW
+                ]
+
+        display_image = cv2.resize(self.rgb_image, (0, 0), fx=DISPLAY_SCALE, fy=DISPLAY_SCALE)
+        cv2.imshow("Aruco Tracking", display_image)
+        cv2.waitKey(1)
+
+    def publish_static_transform(self):
+        """Calcola la media delle ultime trasformazioni e pubblica come statica."""
+        if not self.transform_buffer:
+            self.get_logger().warn("[TF] Nessuna trasformazione disponibile per la media")
+            return
+
+        positions = np.array([pos for _, pos, _ in self.transform_buffer])
+        orientations = np.array([rot for _, _, rot in self.transform_buffer])
+
+        mean_position = np.mean(positions, axis=0)
+        mean_orientation = np.mean(orientations, axis=0)
+
+        static_transform = TransformStamped()
+        static_transform.header.stamp = self.get_clock().now().to_msg()
+        static_transform.header.frame_id = "aruco_marker"
+        static_transform.child_frame_id = "camera_link"
+        #static_transform.child_frame_id = "camera_color_frame"
+        #static_transform.child_frame_id = "camera_depth_frame"
+        #static_transform.child_frame_id = "camera_depth_optical_frame"
+        #static_transform.child_frame_id = "camera_link"
+        
+
+        static_transform.transform.translation.x = mean_position[0]
+        static_transform.transform.translation.y = mean_position[1]
+        static_transform.transform.translation.z = mean_position[2]
+
+        # Converti la rotazione calcolata in un oggetto Rotation
+        original_rotation = R.from_quat(mean_orientation)
+
+        # Crea la rotazione aggiuntiva (90° su Y e 90° su X)
+        additional_rotation = R.from_euler('YX', [90, 90], degrees=True)
+
+        # Componi le due rotazioni
+        final_rotation = additional_rotation * original_rotation
+
+        # Converti di nuovo in quaternione
+        final_quaternion = final_rotation.as_quat()
+
+        # Assegna la rotazione modificata alla trasformazione
+        static_transform.transform.rotation.x = final_quaternion[0]
+        static_transform.transform.rotation.y = final_quaternion[1]
+        static_transform.transform.rotation.z = final_quaternion[2]
+        static_transform.transform.rotation.w = final_quaternion[3]
+        self.static_tf_broadcaster.sendTransform(static_transform)
+        self.get_logger().info(f"[TF] Pubblicata trasformazione statica media: aruco_marker → camera_color_optical_frame {mean_position}")
+
+        # Arresta il nodo e chiude ROS 2
+        #self.get_logger().info("[INFO] Trasformazione pubblicata, arresto del programma...")
+        #cv2.destroyAllWindows()
+        #rclpy.shutdown()
+        #sys.exit(0)
+        
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ArucoPosePublisher()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
