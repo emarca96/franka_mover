@@ -13,20 +13,42 @@ from tf2_geometry_msgs import do_transform_pose_stamped
 from std_msgs.msg import Bool # per avvisare se il robot è ready o busy
 import numpy as np
 import time
+import yaml
 
-
+###### CONFIGURAZIONE GENERALE ###########
 # Costanti globali per i reference frame 
 START_RF = "camera_link"  # Nome RF centrale videocamera 
 TARGET_RF = "fr3_link0"  # Nome RF base del robot
 HAND_RF = "fr3_hand_tcp"
-# DEPTH_VIEW_RF = "camera_depth_optical_frame"  # Nome RF riferimento per le depth images
-translation_x = 0.4  # Traslazione in x da START_RF a TARGET_RF
-translation_y = 0.0  # Traslazione in y da START_RF a TARGET_RF
-translation_z = -0.1  # Traslazione in z da START_RF a TARGET_RF
-rotation_x = 0.0  # Rotazione x da START_RF a TARGET_RF
-rotation_y = 0.0  # Rotazione y da START_RF a TARGET_RF
-rotation_z = 0.0  # Rotazione z da START_RF a TARGET_RF
-rotation_w = 1.0  # Rotazione w da START_RF a TARGET_RF
+DEPTH_VIEW_RF = "camera_depth_optical_frame"  # Nome RF riferimento per le depth images
+############ POSIZIONE DI camera_link RISPETTO a fr3_link0 ################
+#### Il file di calibrazione viene generato da aruco_calibrate.py e si chiama:
+CALIBRATION_FILE = "fr3_camera_calibration.yaml" # Nome file di calibrazione fr3_link0 -> camera_link
+# Carica i valori della trasformata dal file YAML, se non li trovo uso i predefiniti
+try:
+    with open(CALIBRATION_FILE, 'r') as file:
+            data = yaml.safe_load(file)
+            if data is None:  # Se il file è vuoto
+                raise ValueError(f"File {CALIBRATION_FILE} empty")
+    translation_x = data["translation"]["x"]
+    translation_y = data["translation"]["y"]
+    translation_z = data["translation"]["z"]
+    rotation_x = data["rotation"]["x"]
+    rotation_y = data["rotation"]["y"]
+    rotation_z = data["rotation"]["z"]
+    rotation_w = data["rotation"]["w"]
+    print(f"Caricata trasformata: {START_RF} → {TARGET_RF} da {CALIBRATION_FILE}")
+except FileNotFoundError as e:
+    print(str(e))
+    print(f"Calibration file don't found, Using default values for {TARGET_RF} -> {START_RF} ")
+    # Carico i valori di default 
+    translation_x = 0.4  # Traslazione in x da START_RF a TARGET_RF
+    translation_y = 0.0  # Traslazione in y da START_RF a TARGET_RF
+    translation_z = -0.1  # Traslazione in z da START_RF a TARGET_RF
+    rotation_x = 0.0  # Rotazione x da START_RF a TARGET_RF
+    rotation_y = 0.0  # Rotazione y da START_RF a TARGET_RF
+    rotation_z = 0.0  # Rotazione z da START_RF a TARGET_RF
+    rotation_w = 1.0  # Rotazione w da START_RF a TARGET_RF
 ##########################################
 # Costanti globali per il rilascio della mela sul cesto (posizione e orientamento di HAND_RF)
 # Le posizioni e orientamento sono rispetto a TARGET_RF

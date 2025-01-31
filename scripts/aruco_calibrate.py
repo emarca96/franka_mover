@@ -6,14 +6,20 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from geometry_msgs.msg import TransformStamped
-from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
+from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener
 from scipy.spatial.transform import Rotation as R
 import time
-import sys
+import yaml
+import os
 
+CALIBRATION_FILE = "fr3_camera_calibration.yaml"
 ARUCO_SIZE = 0.042  # Dimensione del codice ArUco (42 mm)
 DISPLAY_SCALE = 0.5  # Fattore di riduzione della finestra di visualizzazione
-TIME_WINDOW = 1.0  # Secondi per la media mobile
+TIME_WINDOW = 20.0  # Secondi per la media mobile
+BASE = "fr3_link0"
+CAMERA_BASE = "camera_link"
+END_EFFECTOR = "fr3_hand_tcp"
+ARUCO = "aruco_marker"
 
 # Aruco rispetto a fr3_hand_tcp con quaternioni (da misurare manualmente)
 Y_ROT = 270.0  # Rotazione 3/2*pi
@@ -34,7 +40,7 @@ class ArucoPosePublisher(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.static_tf_broadcaster = StaticTransformBroadcaster(self)
 
-        # Pubblica la trasformazione statica tra `fr3_hand_tcp` e `aruco_marker`
+        # Pubblica la trasformazione statica tra fr3_hand_tcp e aruco_marker
         self.pub_static_fr3_aruco()
 
         # Dizionario ArUco
@@ -61,7 +67,12 @@ class ArucoPosePublisher(Node):
         self.transform_buffer = []  # Lista di tuple (timestamp, posizione, orientazione)
 
         # Timer per pubblicare la trasformazione statica ogni 5 secondi
-        self.create_timer(TIME_WINDOW, self.publish_static_transform)
+        self.create_timer(TIME_WINDOW, self.publish_transform_aruco_camera)
+
+        # Buffer e Listener per TF2 (necessari per ottenere trasformazioni esistenti)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
 
     def compute_quaternion_from_euler(self, y_rot, x_rot, z_rot):
         """
@@ -84,11 +95,11 @@ class ArucoPosePublisher(Node):
         return quaternion
 
     def pub_static_fr3_aruco(self):
-        """Pubblica una trasformazione statica tra `fr3_hand_tcp` e `aruco_marker`."""
+        """Pubblica una trasformazione statica tra fr3_hand_tcp e aruco_marker."""
         static_transform = TransformStamped()
         static_transform.header.stamp = self.get_clock().now().to_msg()
-        static_transform.header.frame_id = "fr3_hand_tcp"  
-        static_transform.child_frame_id = "aruco_marker"
+        static_transform.header.frame_id = END_EFFECTOR  
+        static_transform.child_frame_id = ARUCO
 
         # Posizione fissa rispetto al TCP (da calibrare)
         static_transform.transform.translation.x = X_TRANSLATION  
@@ -103,7 +114,6 @@ class ArucoPosePublisher(Node):
         static_transform.transform.rotation.y = quat[1]
         static_transform.transform.rotation.z = quat[2]
         static_transform.transform.rotation.w = quat[3]
-
 
         self.static_tf_broadcaster.sendTransform(static_transform)
         self.get_logger().info("[TF] Pubblicata trasformazione statica: fr3_hand_tcp → aruco_marker")
@@ -167,7 +177,7 @@ class ArucoPosePublisher(Node):
         cv2.imshow("Aruco Tracking", display_image)
         cv2.waitKey(1)
 
-    def publish_static_transform(self):
+    def publish_transform_aruco_camera(self):
         """Calcola la media delle ultime trasformazioni e pubblica come statica."""
         if not self.transform_buffer:
             self.get_logger().warn("[TF] Nessuna trasformazione disponibile per la media")
@@ -179,51 +189,67 @@ class ArucoPosePublisher(Node):
         mean_position = np.mean(positions, axis=0)
         mean_orientation = np.mean(orientations, axis=0)
 
-        static_transform = TransformStamped()
-        static_transform.header.stamp = self.get_clock().now().to_msg()
-        static_transform.header.frame_id = "aruco_marker"
-        static_transform.child_frame_id = "camera_link"
-        #static_transform.child_frame_id = "camera_color_frame"
-        #static_transform.child_frame_id = "camera_depth_frame"
-        #static_transform.child_frame_id = "camera_depth_optical_frame"
-        #static_transform.child_frame_id = "camera_link"
-        
+        static_transform_aruco = TransformStamped()
+        static_transform_aruco.header.stamp = self.get_clock().now().to_msg()
+        static_transform_aruco.header.frame_id = ARUCO
+        static_transform_aruco.child_frame_id = CAMERA_BASE
 
-        static_transform.transform.translation.x = mean_position[0]
-        static_transform.transform.translation.y = mean_position[1]
-        static_transform.transform.translation.z = mean_position[2]
+        static_transform_aruco.transform.translation.x = mean_position[0] # + 0.0
+        static_transform_aruco.transform.translation.y = mean_position[1] # - 0.015
+        static_transform_aruco.transform.translation.z = mean_position[2] # + 0.0
 
         # Converti la rotazione calcolata in un oggetto Rotation
         original_rotation = R.from_quat(mean_orientation)
 
         # Crea la rotazione aggiuntiva (90° su Y e 90° su X)
-        additional_rotation = R.from_euler('YX', [90, 90], degrees=True)
+        additional_rotation = R.from_euler('YX', [90,90], degrees=True) #-0.047,
 
         # Componi le due rotazioni
         final_rotation = additional_rotation * original_rotation
 
-        # Converti di nuovo in quaternione
         final_quaternion = final_rotation.as_quat()
 
         # Assegna la rotazione modificata alla trasformazione
-        static_transform.transform.rotation.x = final_quaternion[0]
-        static_transform.transform.rotation.y = final_quaternion[1]
-        static_transform.transform.rotation.z = final_quaternion[2]
-        static_transform.transform.rotation.w = final_quaternion[3]
-        self.static_tf_broadcaster.sendTransform(static_transform)
-        self.get_logger().info(f"[TF] Pubblicata trasformazione statica media: aruco_marker → camera_color_optical_frame {mean_position}")
-
-        # Arresta il nodo e chiude ROS 2
-        #self.get_logger().info("[INFO] Trasformazione pubblicata, arresto del programma...")
-        #cv2.destroyAllWindows()
-        #rclpy.shutdown()
-        #sys.exit(0)
+        static_transform_aruco.transform.rotation.x = final_quaternion[0]
+        static_transform_aruco.transform.rotation.y = final_quaternion[1]
+        static_transform_aruco.transform.rotation.z = final_quaternion[2]
+        static_transform_aruco.transform.rotation.w = final_quaternion[3]
         
+        # Pubblica la trasformazione statica aruco_marker → camera_link
+        self.static_tf_broadcaster.sendTransform(static_transform_aruco)
+        self.get_logger().info(f"[TF] Pubblicata trasformazione statica:{ARUCO} → {CAMERA_BASE}")
+
+    def retrieve_and_save_fr3_to_camera(self):
+        """Ascolta la trasformata `fr3_link0 → camera_link` e la salva in `CALIBRATION_FILE`."""
+        try:
+            # Attendi finché la trasformata non è disponibile
+            self.get_logger().info(f"[TF] In ascolto della trasformata {BASE} → {CAMERA_BASE}...")
+            transform = self.tf_buffer.lookup_transform(BASE, CAMERA_BASE, rclpy.time.Time(), rclpy.duration.Duration(seconds=5.0))
+
+            # Prepara i dati per il salvataggio
+            data = {
+                "translation": {axis: getattr(transform.transform.translation, axis) for axis in 'xyz'},
+                "rotation": {axis: getattr(transform.transform.rotation, axis) for axis in 'xyzw'}
+            }
+
+            # Salva su file YAML
+            with open(CALIBRATION_FILE, 'w') as file:
+                yaml.dump(data, file)
+
+            self.get_logger().info(f"[TF] Trasformata {BASE} → {CAMERA_BASE} salvata in {CALIBRATION_FILE}")
+
+        except Exception as e:
+            self.get_logger().error(f"Errore nel recupero della trasformata {BASE} → {CAMERA_BASE}: {e}")
+
 
 def main(args=None):
     rclpy.init(args=args)
     node = ArucoPosePublisher()
-    rclpy.spin(node)
+    start_time = time.time()  # Registra il tempo di inizio
+    duration = 25  # Durata in secondi
+    while (time.time() - start_time) < duration and rclpy.ok():
+        rclpy.spin_once(node)   
+    node.retrieve_and_save_fr3_to_camera() 
     node.destroy_node()
     rclpy.shutdown()
 
