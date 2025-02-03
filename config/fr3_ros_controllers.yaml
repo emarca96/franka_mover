@@ -11,6 +11,10 @@ controller_manager:
     franka_robot_state_broadcaster:
       type: franka_robot_state_broadcaster/FrankaRobotStateBroadcaster
 
+    gravity_compensation_example_controller:
+      type: franka_example_controllers/GravityCompensationExampleController
+
+
 franka_robot_state_broadcaster:
   ros__parameters:
     arm_id: fr3
