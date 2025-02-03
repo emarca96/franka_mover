@@ -15,7 +15,7 @@ import os
 CALIBRATION_FILE = "fr3_camera_calibration.yaml"
 ARUCO_SIZE = 0.042  # Dimensione del codice ArUco (42 mm)
 DISPLAY_SCALE = 0.5  # Fattore di riduzione della finestra di visualizzazione
-TIME_WINDOW = 20.0  # Secondi per la media mobile
+TIME_WINDOW = 5.1  # Secondi per la media mobile
 BASE = "fr3_link0"
 CAMERA_BASE = "camera_link"
 END_EFFECTOR = "fr3_hand_tcp"
@@ -32,6 +32,8 @@ Z_TRANSLATION = 0.0
 class ArucoPosePublisher(Node):
     def __init__(self):
         super().__init__('aruco_pose_publisher')
+
+        self.finished = False # per uscire prog
 
         # Publisher per la trasformazione ArUco → camera
         self.pose_pub = self.create_publisher(TransformStamped, '/aruco_pose', 10)
@@ -194,9 +196,9 @@ class ArucoPosePublisher(Node):
         static_transform_aruco.header.frame_id = ARUCO
         static_transform_aruco.child_frame_id = CAMERA_BASE
 
-        static_transform_aruco.transform.translation.x = mean_position[0] # + 0.0
-        static_transform_aruco.transform.translation.y = mean_position[1] # - 0.015
-        static_transform_aruco.transform.translation.z = mean_position[2] # + 0.0
+        static_transform_aruco.transform.translation.x = mean_position[0]  + 0.0
+        static_transform_aruco.transform.translation.y = mean_position[1]  - 0.015
+        static_transform_aruco.transform.translation.z = mean_position[2]  + 0.0
 
         # Converti la rotazione calcolata in un oggetto Rotation
         original_rotation = R.from_quat(mean_orientation)
@@ -218,6 +220,9 @@ class ArucoPosePublisher(Node):
         # Pubblica la trasformazione statica aruco_marker → camera_link
         self.static_tf_broadcaster.sendTransform(static_transform_aruco)
         self.get_logger().info(f"[TF] Pubblicata trasformazione statica:{ARUCO} → {CAMERA_BASE}")
+        # self.retrieve_and_save_fr3_to_camera()
+        self.finished = True
+
 
     def retrieve_and_save_fr3_to_camera(self):
         """Ascolta la trasformata `fr3_link0 → camera_link` e la salva in `CALIBRATION_FILE`."""
@@ -245,10 +250,12 @@ class ArucoPosePublisher(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = ArucoPosePublisher()
-    start_time = time.time()  # Registra il tempo di inizio
-    duration = 25  # Durata in secondi
-    while (time.time() - start_time) < duration and rclpy.ok():
+    calculated = 25000  # Durata in secondi
+    while (not (node.finished) ) and rclpy.ok():
         rclpy.spin_once(node)   
+    start_time = time.time()  # Registra il tempo di inizio
+    while (time.time() - start_time) < 1 and rclpy.ok():
+        rclpy.spin_once(node)  
     node.retrieve_and_save_fr3_to_camera() 
     node.destroy_node()
     rclpy.shutdown()
