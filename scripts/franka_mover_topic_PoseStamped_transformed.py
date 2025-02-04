@@ -266,7 +266,7 @@ class MoveFR3(Node):
                        f"y={transformed_pose.pose.position.y:.5f}, z={transformed_pose.pose.position.z:.5f}")
             
             #per aggiungere la sfera di collisione (apple)
-            # self.add_collision_sphere(transformed_pose.pose.position.x,transformed_pose.pose.position.y,transformed_pose.pose.position.z)
+            self.add_collision_sphere(transformed_pose.pose.position.x,transformed_pose.pose.position.y,transformed_pose.pose.position.z)
             
             # Creazione del messaggio PointStamped da inviare a /apple_coordinates_robot
             point_msg = PointStamped()
