@@ -11,6 +11,7 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose_stamped
 from std_msgs.msg import Bool # per avvisare se il robot è ready o busy
+from visualization_msgs.msg import Marker
 import numpy as np
 import time
 import yaml
@@ -112,7 +113,7 @@ class MoveFR3(Node):
         )
 
         # Creazione e pubblicazione dell'oggetto di collisione
-        collision_table = self.add_collision_object(
+        collision_table = self.add_collision_box(
             OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z, 
             OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z
         )
@@ -149,7 +150,7 @@ class MoveFR3(Node):
         static_broadcaster.sendTransform(static_transform)
         self.get_logger().info(f"Static transform published: {START_RF} -> {TARGET_RF}")
     
-    def add_collision_object(self, size_x, size_y, size_z, pos_x, pos_y, pos_z):
+    def add_collision_box(self, size_x, size_y, size_z, pos_x, pos_y, pos_z):
         """
         Crea e restituisce un oggetto di collisione di tipo BOX per MoveIt.
 
@@ -186,6 +187,60 @@ class MoveFR3(Node):
         collision_object.operation = CollisionObject.ADD
 
         return collision_object
+    
+    def add_collision_sphere(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03 ):
+        """
+        Aggiunge una sfera come oggetto di collisione nell'ambiente di MoveIt.
+
+        Args:
+            radius (float): Raggio della sfera.
+            pos_x (float): Coordinata X della posizione della sfera.
+            pos_y (float): Coordinata Y della posizione della sfera.
+            pos_z (float): Coordinata Z della posizione della sfera.
+            reference_frame (str): Nome del sistema di riferimento per la sfera.
+        """
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = reference_frame
+        collision_object.id = "collision_apple"
+
+        # Definizione della forma della sfera
+        sphere_primitive = SolidPrimitive()
+        sphere_primitive.type = SolidPrimitive.SPHERE
+        sphere_primitive.dimensions = [radius]  # Il raggio della sfera
+
+        # Definizione della posa della sfera
+        sphere_pose = Pose()
+        sphere_pose.position.x = pos_x
+        sphere_pose.position.y = pos_y
+        sphere_pose.position.z = pos_z
+        sphere_pose.orientation.w = 1.0  # Nessuna rotazione necessaria
+
+
+        # Aggiunge la forma e la posa all'oggetto di collisione
+        collision_object.primitives.append(sphere_primitive)
+        collision_object.primitive_poses.append(sphere_pose)
+        collision_object.operation = CollisionObject.ADD
+
+        # Pubblica l'oggetto di collisione
+        self.collision_object_publisher.publish(collision_object)
+        self.get_logger().info(f"Adding collision apple in frame '{reference_frame}' with radius {radius} m.")
+
+    def remove_collision_sphere(self, sphere_id="collision_apple"):
+        """
+        Rimuove una sfera dall'ambiente MoveIt usando il suo ID.
+
+        Args:
+            sphere_id (str): L'ID dell'oggetto sfera da rimuovere.
+        """
+        collision_object = CollisionObject()
+        collision_object.id = sphere_id
+        collision_object.header.frame_id = TARGET_RF  # Usa lo stesso frame utilizzato per aggiungere l'oggetto
+        collision_object.operation = CollisionObject.REMOVE  # Specifica l'operazione di rimozione
+
+        # Pubblica il messaggio per rimuovere l'oggetto
+        self.collision_object_publisher.publish(collision_object)
+        self.get_logger().info(f"Sphere '{sphere_id}' removed.")
+
 
     def apple_callback(self, msg: PoseStamped):
         """Callback per il topic /apple_coordinates_realsense."""
@@ -210,6 +265,9 @@ class MoveFR3(Node):
             self.get_logger().info(f"Apple position Robot Frame: x={transformed_pose.pose.position.x:.5f}, "
                        f"y={transformed_pose.pose.position.y:.5f}, z={transformed_pose.pose.position.z:.5f}")
             
+            #per aggiungere la sfera di collisione (apple)
+            # self.add_collision_sphere(transformed_pose.pose.position.x,transformed_pose.pose.position.y,transformed_pose.pose.position.z)
+            
             # Creazione del messaggio PointStamped da inviare a /apple_coordinates_robot
             point_msg = PointStamped()
             point_msg.header = transformed_pose.header
@@ -218,9 +276,9 @@ class MoveFR3(Node):
             # Pubblica il messaggio
             self.robot_coordinates_publisher.publish(point_msg)
 
-
             # Memorizza la posa trasformata
             self.target_pose = transformed_pose
+            
 
             # Invia il goal
             self.send_goal()
@@ -400,6 +458,7 @@ class MoveFR3(Node):
         try:
             result = future.result().result
             if result.error_code.val == 1:  # 1 indica SUCCESSO nella MoveIt error codes
+                self.remove_collision_sphere()
                 self.get_logger().info('Goal reached successfully!')
                 self.get_logger().info('Need to grasp the apple')
 
@@ -413,14 +472,15 @@ class MoveFR3(Node):
                 #attendo prossime coordinate
                 self.robot_is_ready = True
                 self.status_publisher.publish(Bool(data=self.robot_is_ready))
+                self.remove_collision_sphere()
 
         except Exception as e:
             self.get_logger().error(f"Result callback error: {str(e)}")
-            
             #il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
             #attendo nuove coordinate
             self.robot_is_ready = True
             self.status_publisher.publish(Bool(data=self.robot_is_ready))
+            self.remove_collision_sphere()
 
     
     def go_to_basket(self):

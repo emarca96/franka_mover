@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import cv2.aruco as aruco
 
-def generate_aruco_marker(dictionary_type=aruco.DICT_7X7_250, marker_id=0, marker_size=700, output_filename="aruco_marker7x7.png"):
+def generate_aruco_marker(dictionary_type=aruco.DICT_7X7_250, marker_id=0, marker_size=700, output_filename="aruco_marker_7x7.png"):
     """
     Genera un marker ArUco e lo salva come immagine.
     

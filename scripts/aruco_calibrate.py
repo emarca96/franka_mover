@@ -13,9 +13,9 @@ import yaml
 import os
 
 CALIBRATION_FILE = "fr3_camera_calibration.yaml"
-ARUCO_SIZE = 0.042  # Dimensione del codice ArUco (42 mm)
+ARUCO_SIZE = 0.05  # Dimensione del codice ArUco (50 mm)
 DISPLAY_SCALE = 0.5  # Fattore di riduzione della finestra di visualizzazione
-TIME_WINDOW = 5.1  # Secondi per la media mobile
+TIME_WINDOW = 20.0  # Secondi per la media mobile
 BASE = "fr3_link0"
 CAMERA_BASE = "camera_link"
 END_EFFECTOR = "fr3_hand_tcp"
