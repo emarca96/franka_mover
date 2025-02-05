@@ -13,21 +13,26 @@ import yaml
 import os
 
 CALIBRATION_FILE = "fr3_camera_calibration.yaml"
-ARUCO_SIZE = 0.05  # Dimensione del codice ArUco (50 mm)
-DISPLAY_SCALE = 0.5  # Fattore di riduzione della finestra di visualizzazione
+ARUCO_SIZE = 0.1  # Dimensione del codice ArUco (10 cm)
+DISPLAY_SCALE = 0.7  # Fattore di riduzione della finestra di visualizzazione
 TIME_WINDOW = 20.0  # Secondi per la media mobile
 BASE = "fr3_link0"
 CAMERA_BASE = "camera_link"
 END_EFFECTOR = "fr3_hand_tcp"
 ARUCO = "aruco_marker"
 
-# Aruco rispetto a fr3_hand_tcp con quaternioni (da misurare manualmente)
-Y_ROT = 270.0  # Rotazione 3/2*pi
-X_ROT = 0.0
-Z_ROT = 90.0  # Rotazione - pi/2
-X_TRANSLATION = -0.009  # Traslazione -9mm
+# Aruco rispetto a fr3_hand_tcp con rotazione X->Y->Z e traslazione(da misurare manualmente)
+# Sono date dal supporto montato con faccia dove ce il punto rosso
+X_ROT = -90.0  
+Y_ROT = -90.0
+Z_ROT = 0.0  
+X_TRANSLATION = -0.009  # Traslazione -9mm per portarla al pari con filo gommini
 Y_TRANSLATION = 0.0
 Z_TRANSLATION = 0.0
+
+# Aruco code è visto da camera_color_optical_frame 
+# Bisogna calcolare la trasformazione inversa che porta da camera_color_optical_frame -> camera_link
+# ros2 run tf2_ros tf2_echo camera_color_optical_frame camera_link
 
 class ArucoPosePublisher(Node):
     def __init__(self):
@@ -76,26 +81,6 @@ class ArucoPosePublisher(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
 
-    def compute_quaternion_from_euler(self, y_rot, x_rot, z_rot):
-        """
-        Calcola i quaternioni a partire dagli angoli di rotazione specificati in gradi.
-        :param y_rot: Rotazione attorno all'asse Y in gradi
-        :param x_rot: Rotazione attorno all'asse Z in gradi
-        :return: Quaternione (qx, qy, qz, qw)
-        """
-        # Converto gli angoli da gradi a radianti
-        y_rad = np.radians(y_rot)
-        x_rot = np.radians(x_rot)
-        z_rad = np.radians(z_rot)
-
-        # Crea la rotazione combinata usando SciPy (ordine: XYZ)
-        rotation = R.from_euler('YXZ', [y_rad, x_rot, z_rad], degrees=False)
-
-        # Converto la rotazione in quaternione
-        quaternion = rotation.as_quat()  # [qx, qy, qz, qw]
-
-        return quaternion
-
     def pub_static_fr3_aruco(self):
         """Pubblica una trasformazione statica tra fr3_hand_tcp e aruco_marker."""
         static_transform = TransformStamped()
@@ -109,7 +94,8 @@ class ArucoPosePublisher(Node):
         static_transform.transform.translation.z = Z_TRANSLATION
 
         # Calcola i quaternioni dalla rotazione specificata
-        quat = self.compute_quaternion_from_euler(Y_ROT, X_ROT, Z_ROT)
+        rotation = R.from_euler('XYZ', [X_ROT, Y_ROT, Z_ROT], degrees=True)
+        quat = rotation.as_quat()
 
         # Assegna i valori alla trasformazione
         static_transform.transform.rotation.x = quat[0]
@@ -196,15 +182,15 @@ class ArucoPosePublisher(Node):
         static_transform_aruco.header.frame_id = ARUCO
         static_transform_aruco.child_frame_id = CAMERA_BASE
 
-        static_transform_aruco.transform.translation.x = mean_position[0]  + 0.0
-        static_transform_aruco.transform.translation.y = mean_position[1]  - 0.015
-        static_transform_aruco.transform.translation.z = mean_position[2]  + 0.0
+        static_transform_aruco.transform.translation.x = mean_position[0]  #- 0.015
+        static_transform_aruco.transform.translation.y = mean_position[1]  #- 0.015
+        static_transform_aruco.transform.translation.z = mean_position[2]  #- 0.015
 
         # Converti la rotazione calcolata in un oggetto Rotation
         original_rotation = R.from_quat(mean_orientation)
 
-        # Crea la rotazione aggiuntiva (90° su Y e 90° su X)
-        additional_rotation = R.from_euler('YX', [90,90], degrees=True) #-0.047,
+        # Crea la rotazione aggiuntiva (DA RIVEDERE)
+        additional_rotation = R.from_euler('YXZ', [81.650, 89.729, -8.398], degrees=True) 
 
         # Componi le due rotazioni
         final_rotation = additional_rotation * original_rotation
