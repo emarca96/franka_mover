@@ -381,7 +381,7 @@ def main(args=None):
                             
 
                 print_coordinates(apple_coordinates_realsense,confidences, first_sended)
-                cv2.imshow('RGB Stream with YOLO', detected_frame)
+                #cv2.imshow('RGB Stream with YOLO', detected_frame)
             
             # Visualizzo Depth Map
             #if realsense_viewer.depth_image is not None:

@@ -529,20 +529,20 @@ class MoveFR3(Node):
 
                 #MANDO ROBOT AL CESTO
                 self.go_to_basket() 
-                
+
             else:
                 self.get_logger().error(f'MoveGroup failed with error code: {result.error_code.val}')
                
-                #il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
-                #attendo prossime coordinate
+                # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
+                # attendo prossime coordinate
                 self.robot_is_ready = True
                 self.status_publisher.publish(Bool(data=self.robot_is_ready))
                 self.remove_collision_sphere()
 
         except Exception as e:
             self.get_logger().error(f"Result callback error: {str(e)}")
-            #il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
-            #attendo nuove coordinate
+            # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
+            # attendo nuove coordinate
             self.robot_is_ready = True
             self.status_publisher.publish(Bool(data=self.robot_is_ready))
             self.remove_collision_sphere()
