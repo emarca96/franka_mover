@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.node import Node
 import tf2_ros
@@ -8,6 +10,7 @@ from scipy.spatial.transform import Rotation as R
 import time
 from sensor_msgs.msg import Image, CameraInfo 
 from cv_bridge import CvBridge
+from tf2_ros import Buffer, TransformListener
 import yaml  # Importa la libreria YAML per salvare i dati
 
 ARUCO_SIZE = 0.1
@@ -60,7 +63,13 @@ class ArucoPosePublisher(Node):
             CameraInfo, '/camera/camera/color/camera_info', self.camera_info_callback, 10
         )
 
-        self.rgb_image = None  # Inizializza l'attributo 
+        self.valid_acquisition_time = 0.0  # Tempo cumulativo in cui ArUco è stato visto
+        self.rgb_image = None  # Inizializza l'attributo
+
+        # Per posa camera_link -> fr3_link0 su file .yaml
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+ 
 
     def camera_info_callback(self, msg):
         """Riceve i parametri intrinseci della telecamera da ROS2"""
@@ -118,7 +127,10 @@ class ArucoPosePublisher(Node):
         # Rilevare marker ArUco
         corners, ids, _ = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
-        if ids is not None:
+        if ids is None:  
+            self.valid_acquisition_time = 0.0  # Resetta il tempo se nessun ArUco è visibile
+            self.get_logger().warn("Nessun codice ArUco rilevato: valid_acquisition_time azzerato!")
+        else:
             cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
             # Stimare la posa della telecamera rispetto al marker
@@ -153,6 +165,11 @@ class ArucoPosePublisher(Node):
 
         # Aggiungi la trasformazione al buffer
         self.pose_buffer.append((current_time, T_camera.flatten(), R_camera))
+
+        if len(self.pose_buffer) > 1:
+            time_diff = self.pose_buffer[-1][0] - self.pose_buffer[-2][0]  # Tempo trascorso dall'ultima rilevazione valida
+            self.valid_acquisition_time += time_diff
+
 
         # Rimuovi le pose più vecchie di TIME_WINDOW
         self.pose_buffer = [(t, p, r) for t, p, r in self.pose_buffer if current_time - t <= TIME_WINDOW]
@@ -203,13 +220,48 @@ class ArucoPosePublisher(Node):
         self.tf_broadcaster.sendTransform(t)
         self.get_logger().info(f"Published transform from {FRAME_CAMERA} to {FRAME_ARUCO}")
 
+    def save_camera_to_base_transform(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(BASE_FRAME, FRAME_CAMERA, rclpy.time.Time())
+            
+            data = {
+                "translation": {
+                    "x": transform.transform.translation.x,
+                    "y": transform.transform.translation.y,
+                    "z": transform.transform.translation.z
+                },
+                "rotation": {
+                    "x": transform.transform.rotation.x,
+                    "y": transform.transform.rotation.y,
+                    "z": transform.transform.rotation.z,
+                    "w": transform.transform.rotation.w
+                }
+            }
+
+            with open(CALIBRATION_FILE, 'w') as file:
+                yaml.dump(data, file, default_flow_style=False)
+
+            self.get_logger().info(f"Trasformata salvata in {CALIBRATION_FILE}")
+        except Exception as e:
+            self.get_logger().error(f"Errore nel recupero della trasformata: {e}")
+
+
 
 def main(args=None):
     rclpy.init(args=args)
     node = ArucoPosePublisher()
-    rclpy.spin(node)
+
+    while rclpy.ok() and node.valid_acquisition_time < TIME_WINDOW:
+        rclpy.spin_once(node, timeout_sec=0.1)  # Spin con timeout breve per mantenere il nodo reattivo
+        node.get_logger().info(f"Acquisizione valida: {node.valid_acquisition_time:.2f}/{TIME_WINDOW} secondi.")
+
+    # Una volta che il tempo è sufficiente, salva la trasformata
+    node.save_camera_to_base_transform()
+    node.get_logger().info("Calibrazione completata. Arresto del nodo.")
+
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
