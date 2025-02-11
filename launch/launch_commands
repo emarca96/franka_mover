@@ -16,5 +16,10 @@ Comando per allineare i frames fr3_link0 e camera_link (statica)
 
 ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 camera_link fr3_link0
 
+x=$(python3 -c "import random; print(random.uniform(0.0, 0.6) * random.choice([-1, 1]))")
+y=$(python3 -c "import random; print(random.uniform(0.0, 0.6) * random.choice([-1, 1]))")
+z=$(python3 -c "import random; print(random.uniform(0.3, 0.6) * random.choice([1, 1]))")
+ros2 topic pub --once /apple_coordinates_realsense geometry_msgs/msg/PoseStamped "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'fr3_link0'}, pose: {position: {x: $x, y: $y, z: $z}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
+
 
 

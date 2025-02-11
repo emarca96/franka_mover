@@ -74,8 +74,11 @@ OBSTACLE_POS_Z = -0.101
 MAX_EFFORT = 5.0
 OPEN = 0.04
 CLOSE = 0.0
-################################
-
+############################################
+#### Pubblicazione cilindro / Sfera ########
+CILINDER = True
+SPHERE = False
+############################################
 
 class MoveFR3(Node):
     def __init__(self):
@@ -206,58 +209,85 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_sphere(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03 ):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.15 ):
         """
-        Aggiunge una sfera come oggetto di collisione nell'ambiente di MoveIt.
+        Aggiunge una sfera e/o un cilindro come oggetti di collisione nell'ambiente di MoveIt in base alle costanti CILINDER e SPHERE.
 
         Args:
-            radius (float): Raggio della sfera.
-            pos_x (float): Coordinata X della posizione della sfera.
-            pos_y (float): Coordinata Y della posizione della sfera.
-            pos_z (float): Coordinata Z della posizione della sfera.
-            reference_frame (str): Nome del sistema di riferimento per la sfera.
+            radius (float): Raggio della sfera e del cilindro.
+            height (float): Altezza del cilindro.
+            pos_x (float): Coordinata X della posizione.
+            pos_y (float): Coordinata Y della posizione.
+            pos_z (float): Coordinata Z della posizione.
+            reference_frame (str): Nome del sistema di riferimento per la sfera e il cilindro.
         """
-        collision_object = CollisionObject()
-        collision_object.header.frame_id = reference_frame
-        collision_object.id = "collision_apple"
+        if SPHERE:
+            collision_sphere = CollisionObject()
+            collision_sphere.header.frame_id = reference_frame
+            collision_sphere.id = "collision_apple"
 
-        # Definizione della forma della sfera
-        sphere_primitive = SolidPrimitive()
-        sphere_primitive.type = SolidPrimitive.SPHERE
-        sphere_primitive.dimensions = [radius]  # Il raggio della sfera
+            sphere_primitive = SolidPrimitive()
+            sphere_primitive.type = SolidPrimitive.SPHERE
+            sphere_primitive.dimensions = [radius]  # Il raggio della sfera
 
-        # Definizione della posa della sfera
-        sphere_pose = Pose()
-        sphere_pose.position.x = pos_x
-        sphere_pose.position.y = pos_y
-        sphere_pose.position.z = pos_z
-        sphere_pose.orientation.w = 1.0  # Nessuna rotazione necessaria
+            sphere_pose = Pose()
+            sphere_pose.position.x = pos_x
+            sphere_pose.position.y = pos_y
+            sphere_pose.position.z = pos_z
+            sphere_pose.orientation.w = 1.0  
 
+            collision_sphere.primitives.append(sphere_primitive)
+            collision_sphere.primitive_poses.append(sphere_pose)
+            collision_sphere.operation = CollisionObject.ADD
 
-        # Aggiunge la forma e la posa all'oggetto di collisione
-        collision_object.primitives.append(sphere_primitive)
-        collision_object.primitive_poses.append(sphere_pose)
-        collision_object.operation = CollisionObject.ADD
+            self.collision_object_publisher.publish(collision_sphere)
+            self.get_logger().info(f"Added collision sphere in frame '{reference_frame}' with radius {radius} m.")
 
-        # Pubblica l'oggetto di collisione
-        self.collision_object_publisher.publish(collision_object)
-        self.get_logger().info(f"Adding collision apple in frame '{reference_frame}' with radius {radius} m.")
+        if CILINDER:
+            collision_cylinder = CollisionObject()
+            collision_cylinder.header.frame_id = reference_frame
+            collision_cylinder.id = "collision_cylinder"
 
-    def remove_collision_sphere(self, sphere_id="collision_apple"):
+            cylinder_primitive = SolidPrimitive()
+            cylinder_primitive.type = SolidPrimitive.CYLINDER
+            cylinder_primitive.dimensions = [height, radius]  # Altezza, raggio
+
+            cylinder_pose = Pose()
+            cylinder_pose.position.x = pos_x
+            cylinder_pose.position.y = pos_y
+            cylinder_pose.position.z = pos_z  # Centrato sulla sfera
+            cylinder_pose.orientation.w = 1.0  
+
+            collision_cylinder.primitives.append(cylinder_primitive)
+            collision_cylinder.primitive_poses.append(cylinder_pose)
+            collision_cylinder.operation = CollisionObject.ADD
+
+            self.collision_object_publisher.publish(collision_cylinder)
+            self.get_logger().info(f"Added collision cylinder in frame '{reference_frame}' with radius {radius} m and height {height} m.")
+
+    def remove_collision_apple(self, sphere_id="collision_apple", cylinder_id="collision_cylinder"):
         """
-        Rimuove una sfera dall'ambiente MoveIt usando il suo ID.
+        Rimuove la sfera e/o il cilindro dall'ambiente MoveIt usando i loro ID se sono stati pubblicati.
 
         Args:
             sphere_id (str): L'ID dell'oggetto sfera da rimuovere.
+            cylinder_id (str): L'ID dell'oggetto cilindro da rimuovere.
         """
-        collision_object = CollisionObject()
-        collision_object.id = sphere_id
-        collision_object.header.frame_id = TARGET_RF  # Usa lo stesso frame utilizzato per aggiungere l'oggetto
-        collision_object.operation = CollisionObject.REMOVE  # Specifica l'operazione di rimozione
+        if SPHERE:
+            collision_object = CollisionObject()
+            collision_object.id = sphere_id
+            collision_object.header.frame_id = TARGET_RF
+            collision_object.operation = CollisionObject.REMOVE  
+            self.collision_object_publisher.publish(collision_object)
+            self.get_logger().info(f"Object '{sphere_id}' removed.")
 
-        # Pubblica il messaggio per rimuovere l'oggetto
-        self.collision_object_publisher.publish(collision_object)
-        self.get_logger().info(f"Sphere '{sphere_id}' removed.")
+        if CILINDER:
+            collision_object = CollisionObject()
+            collision_object.id = cylinder_id
+            collision_object.header.frame_id = TARGET_RF
+            collision_object.operation = CollisionObject.REMOVE  
+            self.collision_object_publisher.publish(collision_object)
+            self.get_logger().info(f"Object '{cylinder_id}' removed.")
 
 
     def apple_callback(self, msg: PoseStamped):
@@ -284,7 +314,7 @@ class MoveFR3(Node):
                        f"y={transformed_pose.pose.position.y:.5f}, z={transformed_pose.pose.position.z:.5f}")
             
             #per aggiungere la sfera di collisione (apple)
-            #self.add_collision_sphere(transformed_pose.pose.position.x,transformed_pose.pose.position.y,transformed_pose.pose.position.z)
+            self.add_collision_apple(transformed_pose.pose.position.x,transformed_pose.pose.position.y,transformed_pose.pose.position.z)
             
             # Creazione del messaggio PointStamped da inviare a /apple_coordinates_robot
             point_msg = PointStamped()
@@ -517,7 +547,7 @@ class MoveFR3(Node):
         try:
             result = future.result().result
             if result.error_code.val == 1:  # 1 indica SUCCESSO nella MoveIt error codes
-                self.remove_collision_sphere()
+                self.remove_collision_apple()
                 self.get_logger().info('Goal reached successfully!')
                 self.get_logger().info('Need to grasp the apple')
                 
@@ -537,7 +567,7 @@ class MoveFR3(Node):
                 # attendo prossime coordinate
                 self.robot_is_ready = True
                 self.status_publisher.publish(Bool(data=self.robot_is_ready))
-                self.remove_collision_sphere()
+                self.remove_collision_apple()
 
         except Exception as e:
             self.get_logger().error(f"Result callback error: {str(e)}")
@@ -545,7 +575,7 @@ class MoveFR3(Node):
             # attendo nuove coordinate
             self.robot_is_ready = True
             self.status_publisher.publish(Bool(data=self.robot_is_ready))
-            self.remove_collision_sphere()
+            self.remove_collision_apple()
 
     
     def go_to_basket(self):
