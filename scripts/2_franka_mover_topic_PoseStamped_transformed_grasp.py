@@ -77,7 +77,7 @@ CLOSE = 0.0
 ############################################
 #### Pubblicazione cilindro / Sfera ########
 CILINDER = True
-SPHERE = False
+SPHERE = True
 ############################################
 
 class MoveFR3(Node):
@@ -224,7 +224,7 @@ class MoveFR3(Node):
         if SPHERE:
             collision_sphere = CollisionObject()
             collision_sphere.header.frame_id = reference_frame
-            collision_sphere.id = "collision_apple"
+            collision_sphere.id = "collision_sphere"
 
             sphere_primitive = SolidPrimitive()
             sphere_primitive.type = SolidPrimitive.SPHERE
@@ -265,7 +265,7 @@ class MoveFR3(Node):
             self.collision_object_publisher.publish(collision_cylinder)
             self.get_logger().info(f"Added collision cylinder in frame '{reference_frame}' with radius {radius} m and height {height} m.")
 
-    def remove_collision_apple(self, sphere_id="collision_apple", cylinder_id="collision_cylinder"):
+    def remove_collision_apple(self, sphere_id="collision_sphere", cylinder_id="collision_cylinder"):
         """
         Rimuove la sfera e/o il cilindro dall'ambiente MoveIt usando i loro ID se sono stati pubblicati.
 
