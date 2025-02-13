@@ -16,6 +16,8 @@ from visualization_msgs.msg import Marker
 import numpy as np
 import time
 import yaml
+import os
+from ament_index_python.packages import get_package_share_directory
 
 ###### CONFIGURAZIONE GENERALE ###########
 # Costanti globali per i reference frame 
@@ -24,14 +26,24 @@ TARGET_RF = "fr3_link0"  # Nome RF base del robot
 HAND_RF = "fr3_hand_tcp"
 DEPTH_VIEW_RF = "camera_depth_optical_frame"  # Nome RF riferimento per le depth images
 ############ POSIZIONE DI camera_link RISPETTO a fr3_link0 ################
-#### Il file di calibrazione viene generato da aruco_calibrate.py e si chiama:
-CALIBRATION_FILE = "fr3_camera_calibration.yaml" # Nome file di calibrazione fr3_link0 -> camera_link
-# Carica i valori della trasformata dal file YAML, se non li trovo uso i predefiniti
+#### Il file di calibrazione viene generato da aruco_calibrate.py e si chiama "fr3_camera_calibration.yaml" nella cartella 
+CALIBRATION_FILE = "fr3_camera_calibration.yaml"
+calibration_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", CALIBRATION_FILE)# Carica i valori della trasformata dal file YAML, se non li trovo uso i predefiniti
+# Se il file non esiste, prova a cercarlo nella cartella installata dopo colcon build
+if not os.path.exists(calibration_path):
+    try:
+        calibration_path = os.path.join(get_package_share_directory('franka_mover'), "config", CALIBRATION_FILE)
+    except Exception:
+        calibration_path = None  # Se il pacchetto non è installato, il file non esiste
+# Se il file di calibrazione non è presente, termina lo script
+if not calibration_path or not os.path.exists(calibration_path):
+    print("Calibration file is not present in franka_mover/config directory.")
+    exit(1)  # Termina lo script con errore
+
+# Caricamento del file di calibrazione
 try:
-    with open(CALIBRATION_FILE, 'r') as file:
-            data = yaml.safe_load(file)
-            if data is None:  # Se il file è vuoto
-                raise ValueError(f"File {CALIBRATION_FILE} empty")
+    with open(calibration_path, 'r') as file:
+        data = yaml.safe_load(file) or {}
     translation_x = data["translation"]["x"]
     translation_y = data["translation"]["y"]
     translation_z = data["translation"]["z"]
@@ -39,18 +51,10 @@ try:
     rotation_y = data["rotation"]["y"]
     rotation_z = data["rotation"]["z"]
     rotation_w = data["rotation"]["w"]
-    print(f"Caricata trasformata: {START_RF} → {TARGET_RF} da {CALIBRATION_FILE}")
-except FileNotFoundError as e:
-    print(str(e))
-    print(f"Calibration file don't found, Using default values for {TARGET_RF} -> {START_RF} ")
-    # Carico i valori di default 
-    translation_x = 0.4  # Traslazione in x da START_RF a TARGET_RF
-    translation_y = 0.0  # Traslazione in y da START_RF a TARGET_RF
-    translation_z = -0.1  # Traslazione in z da START_RF a TARGET_RF
-    rotation_x = 0.0  # Rotazione x da START_RF a TARGET_RF
-    rotation_y = 0.0  # Rotazione y da START_RF a TARGET_RF
-    rotation_z = 0.0  # Rotazione z da START_RF a TARGET_RF
-    rotation_w = 1.0  # Rotazione w da START_RF a TARGET_RF
+    print(f"Calibration file: {calibration_path} correctly sourced.")
+except Exception as e:
+    print(f"Error in {CALIBRATION_FILE}: {e}")
+    exit(1)  # Termina lo script con errore
 ##########################################
 # Costanti globali per il rilascio della mela sul cesto (posizione e orientamento di HAND_RF)
 # Le posizioni e orientamento sono rispetto a TARGET_RF
@@ -77,7 +81,7 @@ CLOSE = 0.0
 ############################################
 #### Pubblicazione cilindro / Sfera ########
 CILINDER = True
-SPHERE = True
+SPHERE = False
 ############################################
 
 class MoveFR3(Node):
@@ -122,15 +126,12 @@ class MoveFR3(Node):
         )
 
         # Creazione e pubblicazione dell'oggetto di collisione
-        collision_table = self.add_collision_box(
-            OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z, 
-            OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z
-        )
+        #collision_table = self.add_collision_box(OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z,OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z)
 
         # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
         time.sleep(0.5)
         self.get_logger().info("Publishing collision object...")
-        self.collision_object_publisher.publish(collision_table)
+        #self.collision_object_publisher.publish(collision_table)
         time.sleep(1.0)
         self.get_logger().info("Collision object published!")
 
@@ -209,7 +210,7 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.15 ):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.02, height = 0.1 ):
         """
         Aggiunge una sfera e/o un cilindro come oggetti di collisione nell'ambiente di MoveIt in base alle costanti CILINDER e SPHERE.
 

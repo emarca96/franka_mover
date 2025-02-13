@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import os
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
 import tf2_ros
@@ -29,7 +31,8 @@ Y_TRANSLATION = 0.000 # Traslazione per portare il codice aruco sotto
 Z_TRANSLATION = 0.069
 #### FILE DI CALIBRAZIONE ####
 CALIBRATION_FILE = "fr3_camera_calibration.yaml"
-
+config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
+calibration_path = os.path.join(config_path, CALIBRATION_FILE)
 
 class ArucoPosePublisher(Node):
     def __init__(self):
@@ -80,7 +83,7 @@ class ArucoPosePublisher(Node):
                 [0, 0, 1]
             ], dtype=np.float32)
             self.dist_coeffs = np.array(msg.d, dtype=np.float32)
-            self.get_logger().info("Parametri intrinseci della telecamera ricevuti.")
+            self.get_logger().info("Intrinsec parameters received.")
 
     def image_callback(self, msg):
         """Riceve il frame della telecamera da ROS2"""
@@ -88,7 +91,7 @@ class ArucoPosePublisher(Node):
             self.rgb_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             self.process_frame()
         except Exception as e:
-            self.get_logger().error(f"Errore nella conversione del frame: {e}")
+            self.get_logger().error(f"Error in frame conversion: {e}")
 
     def publish_static_fr3_aruco(self):
         """Pubblica una trasformazione statica tra fr3_hand_tcp e aruco_marker."""
@@ -114,7 +117,7 @@ class ArucoPosePublisher(Node):
         # Pubblica la trasformazione statica
         static_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
         static_broadcaster.sendTransform(static_transform)
-        self.get_logger().info(f"[TF] Pubblicata trasformazione statica: {FRAME_HAND} → {FRAME_ARUCO}")
+        self.get_logger().info(f"[TF] Static transformation published: {FRAME_HAND} → {FRAME_ARUCO}")
 
     def process_frame(self):
         if self.rgb_image is None:
@@ -129,7 +132,7 @@ class ArucoPosePublisher(Node):
 
         if ids is None:  
             self.valid_acquisition_time = 0.0  # Resetta il tempo se nessun ArUco è visibile
-            self.get_logger().warn("Nessun codice ArUco rilevato: valid_acquisition_time azzerato!")
+            self.get_logger().warn("No ArUco code seen: valid_acquisition_time is zero!")
         else:
             cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
@@ -238,13 +241,12 @@ class ArucoPosePublisher(Node):
                 }
             }
 
-            with open(CALIBRATION_FILE, 'w') as file:
+            with open(calibration_path, 'w') as file:
                 yaml.dump(data, file, default_flow_style=False)
 
-            self.get_logger().info(f"Trasformata salvata in {CALIBRATION_FILE}")
+            self.get_logger().info(f"Static transform saved in: {calibration_path}")
         except Exception as e:
-            self.get_logger().error(f"Errore nel recupero della trasformata: {e}")
-
+            self.get_logger().error(f"No transform available: {e}")
 
 
 def main(args=None):
@@ -253,11 +255,11 @@ def main(args=None):
 
     while rclpy.ok() and node.valid_acquisition_time < TIME_WINDOW:
         rclpy.spin_once(node, timeout_sec=0.1)  # Spin con timeout breve per mantenere il nodo reattivo
-        node.get_logger().info(f"Acquisizione valida: {node.valid_acquisition_time:.2f}/{TIME_WINDOW} secondi.")
+        node.get_logger().info(f"Valid acquisition: {node.valid_acquisition_time:.2f}/{TIME_WINDOW} sec.")
 
     # Una volta che il tempo è sufficiente, salva la trasformata
     node.save_camera_to_base_transform()
-    node.get_logger().info("Calibrazione completata. Arresto del nodo.")
+    node.get_logger().info("Calibration completed. Node stopped.")
 
     node.destroy_node()
     rclpy.shutdown()
