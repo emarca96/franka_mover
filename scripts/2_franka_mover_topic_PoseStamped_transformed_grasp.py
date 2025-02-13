@@ -126,15 +126,17 @@ class MoveFR3(Node):
         )
 
         # Creazione e pubblicazione dell'oggetto di collisione
-        #collision_table = self.add_collision_box(OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z,OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z)
+        collision_table = self.add_collision_box(OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z,OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z)
 
         # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
         time.sleep(0.5)
         self.get_logger().info("Publishing collision object...")
-        #self.collision_object_publisher.publish(collision_table)
+        self.collision_object_publisher.publish(collision_table)
         time.sleep(1.0)
         self.get_logger().info("Collision object published!")
 
+        #apro il gripper per sicurezza
+        self.send_gripper_command(OPEN, MAX_EFFORT)
 
     def broadcast_static_transform(self):
         """Definisce e pubblica la trasformazione statica tra START_RF e TARGET_RF."""
@@ -210,7 +212,7 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.02, height = 0.1 ):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.2 ):
         """
         Aggiunge una sfera e/o un cilindro come oggetti di collisione nell'ambiente di MoveIt in base alle costanti CILINDER e SPHERE.
 
@@ -525,6 +527,13 @@ class MoveFR3(Node):
         # Imposta i vincoli come obiettivo
         goal_msg.request.goal_constraints.append(constraints)
 
+        # **APPLICA LE MODIFICHE**
+        goal_msg.request.allowed_planning_time= 10.0  # Tempo massimo di pianificazione
+        goal_msg.planning_options.replan_attempts = 25
+        goal_msg.planning_options._replan_attempts = 25  # Numero massimo di tentativi
+        goal_msg.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
+
+        # goal_msg.request.planner_id = ""  # Usa il planner predefinito, che tiene conto delle collisioni
         # Invio del goal
         self.get_logger().info('Sending goal to move_group...')
         send_goal_future = self.action_client.send_goal_async(goal_msg)
