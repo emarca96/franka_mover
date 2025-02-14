@@ -4,6 +4,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
+import rclpy.time
 import tf2_ros
 import numpy as np
 import cv2
@@ -14,6 +15,9 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener
 import yaml  # Importa la libreria YAML per salvare i dati
+from control_msgs.action import GripperCommand
+from rclpy.action import ActionClient
+import time
 
 ARUCO_SIZE = 0.1
 TIME_WINDOW = 20.0  # Tempo in secondi per la media mobile
@@ -33,6 +37,8 @@ Z_TRANSLATION = 0.069
 CALIBRATION_FILE = "fr3_camera_calibration.yaml"
 config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
 calibration_path = os.path.join(config_path, CALIBRATION_FILE)
+
+
 
 class ArucoPosePublisher(Node):
     def __init__(self):
@@ -73,7 +79,6 @@ class ArucoPosePublisher(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
  
-
     def camera_info_callback(self, msg):
         """Riceve i parametri intrinseci della telecamera da ROS2"""
         if self.camera_matrix is None:
@@ -247,11 +252,99 @@ class ArucoPosePublisher(Node):
             self.get_logger().info(f"Static transform saved in: {calibration_path}")
         except Exception as e:
             self.get_logger().error(f"No transform available: {e}")
+    
+class GripperController(Node):
+    def __init__(self):
+        super().__init__('gripper_controller')
+
+        # Action client per il gripper
+        self.action_client = ActionClient(self, GripperCommand, '/fr3_gripper/gripper_action')
+
+        # Verifica della disponibilità del server d'azione
+        self.get_logger().info("Waiting for gripper action server...")
+        if not self.action_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error("Gripper action server not available. Exiting.")
+            self.action_client = None  # Imposta a None per evitare ulteriori operazioni
+            return
+
+        self.get_logger().info("Gripper action server available.")
+
+    def send_gripper_command(self, position: float, max_effort: float):
+        """Invia un comando al gripper."""
+        if self.action_client is None:
+            self.get_logger().error("Action client not initialized. Cannot send command.")
+            return
+
+        goal_msg = GripperCommand.Goal()
+        goal_msg.command.position = position  # Posizione desiderata del gripper
+        goal_msg.command.max_effort = max_effort  # Sforzo massimo consentito
+
+        self.get_logger().info(f"Sending gripper command: position={position}, max_effort={max_effort}")
+        send_goal_future = self.action_client.send_goal_async(goal_msg)
+        send_goal_future.add_done_callback(self.goal_response_callback)
+
+    def goal_response_callback(self, future):
+        """Gestisce la risposta del server al comando."""
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                self.get_logger().error("Gripper command rejected.")
+                return
+            self.get_logger().info("Gripper command accepted. Waiting for result...")
+            goal_handle.get_result_async().add_done_callback(self.result_callback)
+        except Exception as e:
+            self.get_logger().error(f"Goal response error: {e}")
+
+    def result_callback(self, future):
+        """Gestisce il risultato del comando inviato al gripper."""
+        try:
+            result = future.result().result
+            if result.stalled:
+                self.get_logger().info("Gripper stalled (object likely grasped).")
+            elif result.reached_goal:
+                self.get_logger().info("Gripper reached goal.")
+            else:
+                self.get_logger().info("Gripper command executed but no specific result reported.")
+        except Exception as e:
+            self.get_logger().error(f"Result callback error: {e}")
+
+    def open_gripper(self, position: float = 0.04, max_effort: float = 100.0):
+        """Apre il gripper alla posizione specificata con lo sforzo massimo indicato."""
+        self.get_logger().info("Fingers opening")
+        self.send_gripper_command(position, max_effort)
+
+    def close_gripper(self, position: float = 0.03, max_effort: float = 100.0):
+        """Chiude il gripper alla posizione specificata con lo sforzo massimo indicato."""
+        self.get_logger().info("Fingers closing")
+        self.send_gripper_command(position, max_effort)
+
+    def wait_for_marker(self, wait_time: int = 5):
+        """Attende che l'utente inserisca il marker ArUco."""
+        self.get_logger().info("Insert the ArUco Marker")
+        time.sleep(wait_time)
+    
+
 
 
 def main(args=None):
     rclpy.init(args=args)
+    # apro gripper per inserire aruco
     node = ArucoPosePublisher()
+    gripper = GripperController()
+    
+    # Se l'action server del gripper non è disponibile, termina il programma
+    if gripper.action_client is None:
+        node.destroy_node()
+        rclpy.shutdown()
+        return  # Esce dal main
+
+    # Procedi con il normale flusso se il gripper è disponibile
+    gripper.open_gripper()   # Apertura iniziale
+    gripper.wait_for_marker()  # Attendi inserimento ArUco
+    gripper.close_gripper()  # Chiusura dopo il tempo di attesa
+
+    time.sleep(5)
+    node.get_logger().info("Starting acquisition...")
 
     while rclpy.ok() and node.valid_acquisition_time < TIME_WINDOW:
         rclpy.spin_once(node, timeout_sec=0.1)  # Spin con timeout breve per mantenere il nodo reattivo
@@ -261,6 +354,13 @@ def main(args=None):
     node.save_camera_to_base_transform()
     node.get_logger().info("Calibration completed. Node stopped.")
 
+    # Riapertura del gripper prima di terminare**
+    if gripper.action_client is not None:
+        gripper.open_gripper()  # Riapri il gripper prima di chiudere il nodo
+    else:
+        gripper.get_logger().error("Gripper action server is unavailable. Skipping final gripper release.")
+
+    gripper.destroy_node()
     node.destroy_node()
     rclpy.shutdown()
 
