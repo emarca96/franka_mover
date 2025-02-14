@@ -453,11 +453,11 @@ class MoveFR3(Node):
 
         Args:
             pos_x, pos_y, pos_z (float): Coordinate della posizione target.
-            orient_x, orient_y, orient_z, orient_w (float): Quaternione di orientamento.
+            orient_x, orient_y, orient_z, orient_w (float): Quaternione di orientamento (se presente)
             gli oggetti di collisione sono automaticamente presi in considerazione da moveit !
 
         Returns:
-            Constraints: Oggetto contenente vincoli di posizione, orientamento.
+            Constraints: Oggetto contenente vincoli di posizione, orientamento (se presente).
             I vincoli di collisione sono gia tenuti conto dalla scena moveit!
         """
         constraints = Constraints()
@@ -467,7 +467,7 @@ class MoveFR3(Node):
         position_constraint.header.frame_id = TARGET_RF
         position_constraint.link_name = HAND_RF
         position_constraint.constraint_region.primitives.append(
-            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
+            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.001, 0.001, 0.001])
         )
 
         position_pose = PoseStamped()
@@ -499,7 +499,7 @@ class MoveFR3(Node):
 
         return constraints
     
-    def send_gripper_command(self, position: float, max_effort: float = 5.0):
+    def send_gripper_command(self, position: float, max_effort: float = 70.0):
         """Invia un comando al gripper."""
         if self.gripper_client is None:
             self.get_logger().error("Gripper action client not initialized. Cannot send command.")

@@ -77,7 +77,7 @@ TABLE_POS_Z = -0.100
 ##### GRIPPER COSTANTI #########
 MAX_EFFORT = 100.0
 OPEN = 0.04
-CLOSE = 0.03
+CLOSE = 0.03 #da tarare in base alla mela
 ############################################
 #### Pubblicazione cilindro / Sfera ########
 CILINDER = True
@@ -182,7 +182,7 @@ class MoveFR3(Node):
 
         # Verifica della disponibilità del server d'azione
         self.get_logger().info("Waiting for gripper action server...")
-        if not self.gripper_client.wait_for_server(timeout_sec=10.0):
+        if not self.gripper_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("Gripper action server not available. Exiting.")
             self.gripper_client = None  # Imposta a None per evitare ulteriori operazioni
         else:
@@ -409,17 +409,17 @@ class MoveFR3(Node):
 
         return quaternion
     
-    def make_constraints(self,pos_x, pos_y, pos_z, orient_x, orient_y, orient_z, orient_w):
+    def make_constraints(self,pos_x, pos_y, pos_z, orient_x=None, orient_y=None, orient_z=None, orient_w=None):
         """
         Crea e restituisce vincoli di posizione e orientamento per il movimento del robot.
 
         Args:
             pos_x, pos_y, pos_z (float): Coordinate della posizione target.
-            orient_x, orient_y, orient_z, orient_w (float): Quaternione di orientamento.
+            orient_x, orient_y, orient_z, orient_w (float): Quaternione di orientamento (se presente)
             gli oggetti di collisione sono automaticamente presi in considerazione da moveit !
 
         Returns:
-            Constraints: Oggetto contenente vincoli di posizione, orientamento.
+            Constraints: Oggetto contenente vincoli di posizione, orientamento (se presente).
             I vincoli di collisione sono gia tenuti conto dalla scena moveit!
         """
         constraints = Constraints()
@@ -429,7 +429,7 @@ class MoveFR3(Node):
         position_constraint.header.frame_id = TARGET_RF
         position_constraint.link_name = HAND_RF
         position_constraint.constraint_region.primitives.append(
-            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.01, 0.01, 0.01])
+            SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.001, 0.001, 0.001])
         )
 
         position_pose = PoseStamped()
@@ -441,33 +441,34 @@ class MoveFR3(Node):
         position_constraint.constraint_region.primitive_poses.append(position_pose.pose)
         position_constraint.weight = 1.0
 
-        # Vincolo di orientamento
-        orientation_constraint = OrientationConstraint()
-        orientation_constraint.header.frame_id = TARGET_RF
-        orientation_constraint.link_name = HAND_RF
-        orientation_constraint.orientation.x = orient_x
-        orientation_constraint.orientation.y = orient_y
-        orientation_constraint.orientation.z = orient_z
-        orientation_constraint.orientation.w = orient_w
-        orientation_constraint.absolute_x_axis_tolerance = 0.01
-        orientation_constraint.absolute_y_axis_tolerance = 0.01
-        orientation_constraint.absolute_z_axis_tolerance = 0.01
-        orientation_constraint.weight = 1.0
-
-        #Aggiungo i vincoli
         constraints.position_constraints.append(position_constraint)
-        constraints.orientation_constraints.append(orientation_constraint)
+
+        # Vincolo di orientamento
+        if None not in (orient_x, orient_y, orient_z, orient_w):
+            orientation_constraint = OrientationConstraint()
+            orientation_constraint.header.frame_id = TARGET_RF
+            orientation_constraint.link_name = HAND_RF
+            orientation_constraint.orientation.x = orient_x
+            orientation_constraint.orientation.y = orient_y
+            orientation_constraint.orientation.z = orient_z
+            orientation_constraint.orientation.w = orient_w
+            orientation_constraint.absolute_x_axis_tolerance = 0.01
+            orientation_constraint.absolute_y_axis_tolerance = 0.01
+            orientation_constraint.absolute_z_axis_tolerance = 0.01
+            orientation_constraint.weight = 1.0
+            
+            constraints.orientation_constraints.append(orientation_constraint)
 
         return constraints
     
-    def send_gripper_command(self, position: float, max_effort: float = 5.0):
+    def send_gripper_command(self, position: float, max_effort: float = 90.0):
         """Invia un comando al gripper."""
         if self.gripper_client is None:
             self.get_logger().error("Gripper action client not initialized. Cannot send command.")
             return
 
         goal_msg = GripperCommand.Goal()
-        goal_msg.command.position = position  # 0.0 chiuso, 0.04 aperto
+        goal_msg.command.position = position  # 0.0 chiuso, 0.04 aperto, #0.03 tarato per non avere max_effort troppo alto
         goal_msg.command.max_effort = max_effort
 
         self.get_logger().info(f"Sending gripper command: position={position}, max_effort={max_effort}")
@@ -536,16 +537,18 @@ class MoveFR3(Node):
                 self.target_pose.pose.position.x,
                 self.target_pose.pose.position.y,
                 self.target_pose.pose.position.z,
-                quaternion.x, quaternion.y, quaternion.z, quaternion.w
+                quaternion.x, 
+                quaternion.y, 
+                quaternion.z, 
+                quaternion.w
                 )
         
         # Imposta i vincoli come obiettivo
         goal_msg.request.goal_constraints.append(constraints)
 
-        # **APPLICA LE MODIFICHE**
-        goal_msg.request.allowed_planning_time= 10.0  # Tempo massimo di pianificazione
-        goal_msg.planning_options.replan_attempts = 25
-        goal_msg.planning_options._replan_attempts = 25  # Numero massimo di tentativi
+        # APPLICA tolleranze di replanning
+        goal_msg.request.allowed_planning_time= 5.0  # Tempo massimo di pianificazione
+        goal_msg.planning_options.replan_attempts = 30
         goal_msg.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
 
         # goal_msg.request.planner_id = ""  # Usa il planner predefinito, che tiene conto delle collisioni
@@ -614,13 +617,14 @@ class MoveFR3(Node):
                 to_basket_position_x,
                 to_basket_position_y,
                 to_basket_position_z,
-                to_basket_orientation_x,
-                to_basket_orientation_y,
-                to_basket_orientation_z,
-                to_basket_orientation_w
             )
 
         basket_goal.request.goal_constraints.append(constraints)
+
+        # APPLICA tolleranze di replanning
+        basket_goal.request.allowed_planning_time= 5.0  # Tempo massimo di pianificazione
+        basket_goal.planning_options.replan_attempts = 30
+        basket_goal.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
 
         # Invio del goal
         self.get_logger().info('Sending goal to basket...')
