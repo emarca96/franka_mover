@@ -58,21 +58,21 @@ except Exception as e:
 ##########################################
 # Costanti globali per il rilascio della mela sul cesto (posizione e orientamento di HAND_RF)
 # Le posizioni e orientamento sono rispetto a TARGET_RF
-to_basket_position_x = -0.5
-to_basket_position_y = 0.0
-to_basket_position_z = 0.2
-to_basket_orientation_x = 0.0
-to_basket_orientation_y = -np.sqrt(2)/2
-to_basket_orientation_z = 0.0
-to_basket_orientation_w = np.sqrt(2)/2
+to_basket_position_x = 0.4
+to_basket_position_y = 0.9
+to_basket_position_z = 0.3
+#to_basket_orientation_x = 0.0
+#to_basket_orientation_y = -np.sqrt(2)/2
+#to_basket_orientation_z = 0.0
+#to_basket_orientation_w = np.sqrt(2)/2
 ##########################################
-# Costanti globali per la posizione e dimensioni dell'ostacolo BOX rispetto a TARGET_RF
-TABLE_SIZE_X = 0.8
-TABLE_SIZE_Y = 1.2
-TABLE_SIZE_Z = 0.2
-TABLE_POS_X = 0.187
-TABLE_POS_Y = 0.42
-TABLE_POS_Z = -0.100
+# Costanti globali per la posizione e dimensioni dell'ostacolo TABLE rispetto a TARGET_RF
+OBSTACLE_SIZE_X = 0.8
+OBSTACLE_SIZE_Y = 1.2
+OBSTACLE_SIZE_Z = 0.2
+OBSTACLE_POS_X = 0.187
+OBSTACLE_POS_Y = 0.425
+OBSTACLE_POS_Z = -0.10
 ############################################
 ##### GRIPPER COSTANTI #########
 MAX_EFFORT = 100.0
@@ -124,13 +124,12 @@ class MoveFR3(Node):
             #"/planning_scene", 
             10
         )
-
-        # Creazione e pubblicazione dell'oggetto di collisione tavolo 
-        collision_table = self.add_collision_box(TABLE_SIZE_X, TABLE_SIZE_Y, TABLE_SIZE_Z,TABLE_POS_X, TABLE_POS_Y, TABLE_POS_Z, "collision_table")
+        # Creazione e pubblicazione dell'oggetto di collisione tavolo
+        collision_table = self.add_collision_box(OBSTACLE_SIZE_X, OBSTACLE_SIZE_Y, OBSTACLE_SIZE_Z,OBSTACLE_POS_X, OBSTACLE_POS_Y, OBSTACLE_POS_Z,"collision_table")
         # Creazione oggetto di collisione robot
-        collision_robot = self.add_collision_box(0.29, 0.29, 0.6, 0.0, 0.85, 0.30,"collision_robot")
+        collision_robot = self.add_collision_box(0.32, 0.32, 0.6, -0.053, 0.865, 0.285,"collision_robot")
         # Creazione oggetto di collisione cesto
-        collision_basket = self.add_collision_box(0.4, 0.4, 0.15, 0.387, 0.82, 0.075,"collision_basket")
+        collision_basket = self.add_collision_box(0.4, 0.3, 0.15, 0.386, 0.875, 0.075,"collision_basket")
 
         # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
         time.sleep(1.0)
@@ -142,6 +141,9 @@ class MoveFR3(Node):
         self.collision_object_publisher.publish(collision_basket)
         time.sleep(1.0)
         self.get_logger().info("Collision objects published!")
+
+        #apro il gripper per sicurezza
+        self.send_gripper_command(OPEN, MAX_EFFORT)
 
     def broadcast_static_transform(self):
         """Definisce e pubblica la trasformazione statica tra START_RF e TARGET_RF."""
@@ -179,7 +181,7 @@ class MoveFR3(Node):
             self.get_logger().info("Gripper action server available.")
 
 
-    def add_collision_box(self, size_x, size_y, size_z, pos_x, pos_y, pos_z, name):
+    def add_collision_box(self, size_x, size_y, size_z, pos_x, pos_y, pos_z,name):
         """
         Crea e restituisce un oggetto di collisione di tipo BOX per MoveIt.
 
@@ -217,7 +219,7 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.2 ):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.5 ):
         """
         Aggiunge una sfera e/o un cilindro come oggetti di collisione nell'ambiente di MoveIt in base alle costanti CILINDER e SPHERE.
 
@@ -263,7 +265,7 @@ class MoveFR3(Node):
             cylinder_pose = Pose()
             cylinder_pose.position.x = pos_x
             cylinder_pose.position.y = pos_y
-            cylinder_pose.position.z = pos_z  # Centrato sulla sfera
+            cylinder_pose.position.z = pos_z # Centrato sulla sfera
             cylinder_pose.orientation.w = 1.0  
 
             collision_cylinder.primitives.append(cylinder_primitive)
@@ -296,6 +298,42 @@ class MoveFR3(Node):
             collision_object.operation = CollisionObject.REMOVE  
             self.collision_object_publisher.publish(collision_object)
             self.get_logger().info(f"Object '{cylinder_id}' removed.")
+
+    def remove_collision_environment(self, table_id="collision_table", box_id="collision_basket", robot_id="collision_robot"):
+        """
+        Rimuove gli oggetti di collisione specificati dall'ambiente MoveIt.
+
+        Args:
+            table_id (str): L'ID dell'oggetto tavolo da rimuovere.
+            box_id (str): L'ID dell'oggetto box da rimuovere.
+            robot_id (str): L'ID dell'oggetto robot_box da rimuovere.
+        """
+
+        # Rimuove il tavolo
+        collision_object_table = CollisionObject()
+        collision_object_table.id = table_id
+        collision_object_table.header.frame_id = TARGET_RF
+        collision_object_table.operation = CollisionObject.REMOVE
+        self.collision_object_publisher.publish(collision_object_table)
+        self.get_logger().info(f"Object '{table_id}' removed.")
+
+        # Rimuove il box
+        collision_object_box = CollisionObject()
+        collision_object_box.id = box_id
+        collision_object_box.header.frame_id = TARGET_RF
+        collision_object_box.operation = CollisionObject.REMOVE
+        self.collision_object_publisher.publish(collision_object_box)
+        self.get_logger().info(f"Object '{box_id}' removed.")
+
+        # Rimuove il robot_box
+        collision_object_robot = CollisionObject()
+        collision_object_robot.id = robot_id
+        collision_object_robot.header.frame_id = TARGET_RF
+        collision_object_robot.operation = CollisionObject.REMOVE
+        self.collision_object_publisher.publish(collision_object_robot)
+        self.get_logger().info(f"Object '{robot_id}' removed.")
+
+        
 
 
     def apple_callback(self, msg: PoseStamped):
@@ -399,7 +437,7 @@ class MoveFR3(Node):
 
         return quaternion
     
-    def make_constraints(self,pos_x, pos_y, pos_z, orient_x, orient_y, orient_z, orient_w):
+    def make_constraints(self,pos_x, pos_y, pos_z, orient_x=None, orient_y=None, orient_z=None, orient_w=None):
         """
         Crea e restituisce vincoli di posizione e orientamento per il movimento del robot.
 
@@ -431,22 +469,23 @@ class MoveFR3(Node):
         position_constraint.constraint_region.primitive_poses.append(position_pose.pose)
         position_constraint.weight = 1.0
 
-        # Vincolo di orientamento
-        orientation_constraint = OrientationConstraint()
-        orientation_constraint.header.frame_id = TARGET_RF
-        orientation_constraint.link_name = HAND_RF
-        orientation_constraint.orientation.x = orient_x
-        orientation_constraint.orientation.y = orient_y
-        orientation_constraint.orientation.z = orient_z
-        orientation_constraint.orientation.w = orient_w
-        orientation_constraint.absolute_x_axis_tolerance = 0.01
-        orientation_constraint.absolute_y_axis_tolerance = 0.01
-        orientation_constraint.absolute_z_axis_tolerance = 0.01
-        orientation_constraint.weight = 1.0
-
-        #Aggiungo i vincoli
         constraints.position_constraints.append(position_constraint)
-        constraints.orientation_constraints.append(orientation_constraint)
+
+        # Vincolo di orientamento
+        if None not in (orient_x, orient_y, orient_z, orient_w):
+            orientation_constraint = OrientationConstraint()
+            orientation_constraint.header.frame_id = TARGET_RF
+            orientation_constraint.link_name = HAND_RF
+            orientation_constraint.orientation.x = orient_x
+            orientation_constraint.orientation.y = orient_y
+            orientation_constraint.orientation.z = orient_z
+            orientation_constraint.orientation.w = orient_w
+            orientation_constraint.absolute_x_axis_tolerance = 0.01
+            orientation_constraint.absolute_y_axis_tolerance = 0.01
+            orientation_constraint.absolute_z_axis_tolerance = 0.01
+            orientation_constraint.weight = 1.0
+            
+            constraints.orientation_constraints.append(orientation_constraint)
 
         return constraints
     
@@ -533,7 +572,7 @@ class MoveFR3(Node):
         goal_msg.request.goal_constraints.append(constraints)
 
         # **APPLICA LE MODIFICHE**
-        goal_msg.request.allowed_planning_time= 10.0  # Tempo massimo di pianificazione
+        goal_msg.request.allowed_planning_time= 2.0  # Tempo massimo di pianificazione
         goal_msg.planning_options.replan_attempts = 25
         goal_msg.planning_options._replan_attempts = 25  # Numero massimo di tentativi
         goal_msg.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
@@ -604,10 +643,10 @@ class MoveFR3(Node):
                 to_basket_position_x,
                 to_basket_position_y,
                 to_basket_position_z,
-                to_basket_orientation_x,
-                to_basket_orientation_y,
-                to_basket_orientation_z,
-                to_basket_orientation_w
+                #to_basket_orientation_x,
+                #to_basket_orientation_y,
+                #to_basket_orientation_z,
+                #to_basket_orientation_w
             )
 
         basket_goal.request.goal_constraints.append(constraints)
@@ -686,7 +725,9 @@ def main(args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info("Shutting down...")
+        node.remove_collision_environment()
     finally:
+        
         node.destroy_node()
         rclpy.shutdown()
 
