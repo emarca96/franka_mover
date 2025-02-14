@@ -130,6 +130,12 @@ class MoveFR3(Node):
         collision_robot = self.add_collision_box(0.32, 0.32, 0.6, -0.053, 0.865, 0.285,"collision_robot")
         # Creazione oggetto di collisione cesto
         collision_basket = self.add_collision_box(0.4, 0.3, 0.15, 0.386, 0.875, 0.075,"collision_basket")
+        # Creo Muro lavagna collisione
+        collision_wall = self.add_collision_box(0.05, 2.0, 2.0 , 0.0, 0.0 , -0.5 , "collision_wall")
+        # Creo Scrivania Collisione
+        collision_desk = self.add_collision_box(2.0 , 0.5, 2.0, 0.0 , -0.5 , 0.0 ,"collision_desk")
+
+
 
         # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
         time.sleep(1.0)
@@ -139,6 +145,10 @@ class MoveFR3(Node):
         self.collision_object_publisher.publish(collision_robot)
         time.sleep(1.0)
         self.collision_object_publisher.publish(collision_basket)
+        time.sleep(1.0)
+        self.collision_object_publisher.publish(collision_wall)
+        time.sleep(1.0)
+        self.collision_object_publisher.publish(collision_desk)
         time.sleep(1.0)
         self.get_logger().info("Collision objects published!")
 

@@ -8,7 +8,7 @@ from moveit_msgs.msg import Constraints, PositionConstraint, OrientationConstrai
 from shape_msgs.msg import SolidPrimitive
 from rclpy.action import ActionClient
 from moveit_msgs.action import MoveGroup
-import numpy
+
 
 
 
@@ -30,14 +30,14 @@ class MoveFR3(Node):
         # Configurazione della pose target
         target_pose = PoseStamped()
         target_pose.header.frame_id = 'fr3_link0'
-        target_pose.pose.position.x = 0.7
-        target_pose.pose.position.y = 0.0
-        target_pose.pose.position.z = 0.0
+        target_pose.pose.position.x = 0.4
+        target_pose.pose.position.y = 0.8
+        target_pose.pose.position.z = 0.30
         #Quaternione della posa   
-        target_pose.pose.orientation.x = 1.0 #0.0
-        target_pose.pose.orientation.y = 0.0 #numpy.sqrt(2)/2
-        target_pose.pose.orientation.z = 0.0
-        target_pose.pose.orientation.w = 0.0 #-numpy.sqrt(2)/2
+        # target_pose.pose.orientation.x = 1.0 #0.0
+        # target_pose.pose.orientation.y = 0.0 #numpy.sqrt(2)/2
+        # target_pose.pose.orientation.z = 0.0
+        # target_pose.pose.orientation.w = 0.0 #-numpy.sqrt(2)/2
         # Vincoli di posizione
         position_constraint = PositionConstraint()
         position_constraint.header.frame_id = target_pose.header.frame_id
@@ -49,19 +49,19 @@ class MoveFR3(Node):
         position_constraint.weight = 0.0
 
         # Vincoli di orientamento
-        orientation_constraint = OrientationConstraint()
-        orientation_constraint.header.frame_id = target_pose.header.frame_id
-        orientation_constraint.link_name = 'fr3_hand_tcp'
-        orientation_constraint.orientation = target_pose.pose.orientation
-        orientation_constraint.absolute_x_axis_tolerance = 0.01
-        orientation_constraint.absolute_y_axis_tolerance = 0.01
-        orientation_constraint.absolute_z_axis_tolerance = 0.01
-        orientation_constraint.weight = 2.0
+        # orientation_constraint = OrientationConstraint()
+        # orientation_constraint.header.frame_id = target_pose.header.frame_id
+        # orientation_constraint.link_name = 'fr3_hand_tcp'
+        # orientation_constraint.orientation = target_pose.pose.orientation
+        # orientation_constraint.absolute_x_axis_tolerance = 0.01
+        # orientation_constraint.absolute_y_axis_tolerance = 0.01
+        # orientation_constraint.absolute_z_axis_tolerance = 0.01
+        # orientation_constraint.weight = 2.0
 
         # Configurazione dei vincoli
         constraints = Constraints()
         constraints.position_constraints.append(position_constraint)
-        constraints.orientation_constraints.append(orientation_constraint)
+        #constraints.orientation_constraints.append(orientation_constraint)
 
         # Imposta i vincoli come obiettivo
         goal_msg.request.goal_constraints.append(constraints)

@@ -58,13 +58,13 @@ except Exception as e:
 ##########################################
 # Costanti globali per il rilascio della mela sul cesto (posizione e orientamento di HAND_RF)
 # Le posizioni e orientamento sono rispetto a TARGET_RF
-to_basket_position_x = -0.5
-to_basket_position_y = 0.0
-to_basket_position_z = 0.2
-to_basket_orientation_x = 0.0
-to_basket_orientation_y = -np.sqrt(2)/2
-to_basket_orientation_z = 0.0
-to_basket_orientation_w = np.sqrt(2)/2
+to_basket_position_x = 0.4
+to_basket_position_y = 0.8
+to_basket_position_z = 0.3
+#to_basket_orientation_x = 0.0
+#to_basket_orientation_y = -np.sqrt(2)/2
+#to_basket_orientation_z = 0.0
+#to_basket_orientation_w = np.sqrt(2)/2
 ##########################################
 # Costanti globali per la posizione e dimensioni dell'ostacolo BOX rispetto a TARGET_RF
 TABLE_SIZE_X = 0.8
@@ -131,6 +131,11 @@ class MoveFR3(Node):
         collision_robot = self.add_collision_box(0.29, 0.29, 0.6, 0.0, 0.85, 0.30,"collision_robot")
         # Creazione oggetto di collisione cesto
         collision_basket = self.add_collision_box(0.4, 0.4, 0.15, 0.387, 0.82, 0.075,"collision_basket")
+        # Creo Muro lavagna collisione
+        collision_wall = self.add_collision_box(0.05, 2.0, 2.0 , -0.5, 0.0 , 0.0 , "collision_wall")
+        # Creo Scrivania Collisione
+        collision_desk = self.add_collision_box(2.0 , 0.05, 2.0, 0.0 , -0.5 , 0.0 ,"collision_desk")
+
 
         # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
         time.sleep(1.0)
@@ -140,6 +145,11 @@ class MoveFR3(Node):
         self.collision_object_publisher.publish(collision_robot)
         time.sleep(1.0)
         self.collision_object_publisher.publish(collision_basket)
+        time.sleep(1.0)
+        time.sleep(1.0)
+        self.collision_object_publisher.publish(collision_wall)
+        time.sleep(1.0)
+        self.collision_object_publisher.publish(collision_desk)
         time.sleep(1.0)
         self.get_logger().info("Collision objects published!")
 
