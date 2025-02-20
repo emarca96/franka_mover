@@ -11,7 +11,7 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose_stamped
 from std_msgs.msg import Bool # per avvisare se il robot è ready o busy
-from control_msgs.action import GripperCommand
+from franka_msgs.action import Grasp
 from visualization_msgs.msg import Marker
 import numpy as np
 import time
@@ -113,6 +113,9 @@ class MoveFR3(Node):
         #Publisher per pubblicare coordinate mela trasformate su /apple_coordinates_robot (PointStamped)
         self.robot_coordinates_publisher = self.create_publisher(PointStamped, '/apple_coordinates_robot', 10)
 
+        # Action client per il gripper
+        self.gripper_client = ActionClient(self, Grasp, '/fr3_gripper/grasp')
+
         self.status_publisher = self.create_publisher(Bool, '/robot_status', 10)
         self.robot_is_ready = True  # Inizialmente il robot è pronto
         self.status_publisher.publish(Bool(data=self.robot_is_ready))
@@ -125,6 +128,15 @@ class MoveFR3(Node):
             10
         )
 
+        # Verifica della disponibilità del server d'azione
+        self.get_logger().info("Waiting for grasp action server...")
+        if not self.gripper_client.wait_for_server(timeout_sec=2.0):
+            self.get_logger().error("Grasp action server not available.")
+            self.gripper_client = None  # Imposta a None per evitare ulteriori operazioni
+        else:
+            self.get_logger().info("Grasp action server available.")
+
+
         # Creazione e pubblicazione dell'oggetto di collisione tavolo 
         collision_table = self.add_collision_box(TABLE_SIZE_X, TABLE_SIZE_Y, TABLE_SIZE_Z,TABLE_POS_X, TABLE_POS_Y, TABLE_POS_Z, "collision_table")
         # Creazione oggetto di collisione robot
@@ -135,7 +147,6 @@ class MoveFR3(Node):
         collision_wall = self.add_collision_box(0.05, 2.0, 2.0 , -0.5, 0.0 , 0.0 , "collision_wall")
         # Creo Scrivania Collisione
         collision_desk = self.add_collision_box(2.0 , 0.05, 2.0, 0.0 , -0.5 , 0.0 ,"collision_desk")
-
 
         # Attendo un po' per assicurarsi che MoveIt riceva il messaggio
         time.sleep(1.0)
@@ -176,17 +187,6 @@ class MoveFR3(Node):
         # Pubblica la trasformazione statica
         static_broadcaster.sendTransform(static_transform)
         self.get_logger().info(f"Static transform published: {START_RF} -> {TARGET_RF}")
-    
-        # Action client per il gripper
-        self.gripper_client = ActionClient(self, GripperCommand, '/fr3_gripper/gripper_action')
-
-        # Verifica della disponibilità del server d'azione
-        self.get_logger().info("Waiting for gripper action server...")
-        if not self.gripper_client.wait_for_server(timeout_sec=2.0):
-            self.get_logger().error("Gripper action server not available. Exiting.")
-            self.gripper_client = None  # Imposta a None per evitare ulteriori operazioni
-        else:
-            self.get_logger().info("Gripper action server available.")
 
 
     def add_collision_box(self, size_x, size_y, size_z, pos_x, pos_y, pos_z, name):
@@ -227,7 +227,7 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.2 ):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.5 ):
         """
         Aggiunge una sfera e/o un cilindro come oggetti di collisione nell'ambiente di MoveIt in base alle costanti CILINDER e SPHERE.
 
@@ -461,45 +461,47 @@ class MoveFR3(Node):
 
         return constraints
     
-    def send_gripper_command(self, position: float, max_effort: float = 90.0):
+    def send_grasp_command(self, position: float, effort: float, innerepsilon = 0.5, outerepsilon = 0.5, velocity = 0.2):
         """Invia un comando al gripper."""
-        if self.gripper_client is None:
-            self.get_logger().error("Gripper action client not initialized. Cannot send command.")
+        if self.action_client is None:
+            self.get_logger().error("Action client not initialized. Cannot send command.")
             return
 
-        goal_msg = GripperCommand.Goal()
-        goal_msg.command.position = position  # 0.0 chiuso, 0.04 aperto, #0.03 tarato per non avere max_effort troppo alto
-        goal_msg.command.max_effort = max_effort
+        goal_msg = Grasp.Goal()
+        goal_msg.epsilon.inner = innerepsilon  
+        goal_msg.epsilon.outer = outerepsilon  
+        goal_msg.force = effort
+        goal_msg.speed = velocity
+        goal_msg.width = position
 
-        self.get_logger().info(f"Sending gripper command: position={position}, max_effort={max_effort}")
-        send_goal_future = self.gripper_client.send_goal_async(goal_msg)
-        send_goal_future.add_done_callback(self.gripper_response_callback)
+        self.get_logger().info(f"Sending grasp command: width={position}, effort={effort}, speed={velocity}, epsilonIN/OUT={innerepsilon},{outerepsilon}")
+        send_goal_future = self.action_client.send_goal_async(goal_msg)
+        send_goal_future.add_done_callback(self.grasp_response_callback)
 
-
-    def gripper_response_callback(self, future):
-        """Gestisce la risposta del server al comando del gripper."""
+    def grasp_response_callback(self, future):
+        """Gestisce la risposta del server al comando."""
         try:
             goal_handle = future.result()
             if not goal_handle.accepted:
-                self.get_logger().error("Gripper command rejected.")
+                self.get_logger().error("Grasp command rejected.")
                 return
-            self.get_logger().info("Gripper command accepted. Waiting for result...")
-            goal_handle.get_result_async().add_done_callback(self.gripper_result_callback)
+            self.get_logger().info("Grasp command accepted. Waiting for result...")
+            goal_handle.get_result_async().add_done_callback(self.grasp_result_callback)
         except Exception as e:
-            self.get_logger().error(f"Gripper goal response error: {e}")
+            self.get_logger().error(f"Goal response error: {e}")
 
-    def gripper_result_callback(self, future):
+    def grasp_result_callback(self, future):
         """Gestisce il risultato del comando inviato al gripper."""
         try:
             result = future.result().result
             if result.stalled:
-                self.get_logger().info("Gripper stalled (object likely grasped).")
+                self.get_logger().info("Grasp stalled (object likely grasped).")
             elif result.reached_goal:
-                self.get_logger().info("Gripper reached goal.")
+                self.get_logger().info("Grasp reached goal.")
             else:
-                self.get_logger().info("Gripper command executed but no specific result reported.")
+                self.get_logger().info("Grasp command executed but no specific result reported.")
         except Exception as e:
-            self.get_logger().error(f"Gripper result callback error: {e}")
+            self.get_logger().error(f"Result grasp callback error: {e}")
 
 
     def send_goal(self):
@@ -580,7 +582,7 @@ class MoveFR3(Node):
                 self.get_logger().info('Need to grasp the apple')
                 
                 # FACCIO IL GRASPING
-                self.send_gripper_command(position = CLOSE, max_effort=MAX_EFFORT)  # Chiudi il gripper
+                self.send_grasp_command(position = CLOSE, effort = MAX_EFFORT)  # Chiudi il gripper
                 self.get_logger().info('Grasping...')
                 time.sleep(2.0)
                 self.get_logger().info('Fingers closed: apple grasped')
@@ -599,6 +601,7 @@ class MoveFR3(Node):
 
         except Exception as e:
             self.get_logger().error(f"Result callback error: {str(e)}")
+
             # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
             # attendo nuove coordinate
             self.robot_is_ready = True
@@ -651,7 +654,7 @@ class MoveFR3(Node):
                 self.get_logger().info('Basket goal reached successfully!')
 
                 # RILASCIO LA MELA
-                self.send_gripper_command(position = OPEN, max_effort=MAX_EFFORT)  # Apri il gripper
+                self.send_grasp_command(position = OPEN, effort = MAX_EFFORT)  # Apri il gripper
                 self.get_logger().info('Releasing...')
                 time.sleep(2.0)
                 self.get_logger().info('Fingers opened: apple released')
@@ -666,7 +669,7 @@ class MoveFR3(Node):
 
                 ## LA MELA DEVE ESSERE RILASCIATA
                 # RILASCIO LA MELA
-                self.send_gripper_command(position = OPEN, max_effort=MAX_EFFORT)  # Apri il gripper
+                self.send_grasp_command(position = OPEN, effort = MAX_EFFORT)  # Apri il gripper
                 self.get_logger().info('Releasing...')
                 time.sleep(2.0)
                 self.get_logger().info('Fingers opened: apple released')
@@ -681,7 +684,7 @@ class MoveFR3(Node):
             
             ## LA MELA DEVE ESSERE RILASCIATA
             # RILASCIO LA MELA
-            self.send_gripper_command(position = OPEN, max_effort=MAX_EFFORT)  # Apri il gripper
+            self.send_grasp_command(position = OPEN, effort = MAX_EFFORT)  # Apri il gripper
             self.get_logger().info('Releasing...')
             time.sleep(2.0)
             self.get_logger().info('Fingers opened: apple released')

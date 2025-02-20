@@ -30,7 +30,7 @@ BASE_FRAME = "fr3_link0"
 X_ROT = -90.0  
 Y_ROT = -90.0
 Z_ROT = 0.0  
-X_TRANSLATION = -0.009  # Traslazione -9mm per portarla al pari con filo gommini
+X_TRANSLATION = -0.009  # Traslazione -9mm per portarla al pari con filo gommini dei fingers
 Y_TRANSLATION = 0.000 # Traslazione per portare il codice aruco sotto
 Z_TRANSLATION = 0.069
 #### FILE DI CALIBRAZIONE ####
@@ -145,24 +145,25 @@ class ArucoPosePublisher(Node):
             rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, self.marker_size, self.camera_matrix, self.dist_coeffs)
             
             for i in range(len(ids)):
-                self.publish_tf(tvecs[i], rvecs[i])
-                #cv2.drawFrameAxes(frame, self.camera_matrix, self.dist_coeffs, rvecs[i], tvecs[i], 0.05)
+                self.publish_tf(tvecs[i], rvecs[i], frame)
+                cv2.drawFrameAxes(frame, self.camera_matrix, self.dist_coeffs, rvecs[i], tvecs[i], 0.05)
                 
         # Mostra l'immagine con il marker rilevato
-        #cv2.imshow("ArUco Pose Estimation", frame)
+        cv2.imshow("ArUco Pose Estimation", frame)
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
             self.pipeline.stop()
             rclpy.shutdown()
             cv2.destroyAllWindows()
 
 
-    def publish_tf(self, tvec, rvec):
+    def publish_tf(self, tvec, rvec, frame):
         # Converti il vettore di rotazione in matrice di rotazione
         R_marker, _ = cv2.Rodrigues(rvec)
 
         # Usa direttamente la trasformazione rilevata senza correzioni
         R_transformed = R_marker
-        T_transformed = tvec.reshape(3, 1)
+        T_transformed = tvec.reshape(3,1)
 
 
         # Inverti la trasformazione per ottenere la posa della telecamera rispetto al marker
@@ -194,21 +195,46 @@ class ArucoPosePublisher(Node):
             mean_T = T_camera.flatten()
             mean_R = R_camera
 
-        # Definisci la rotazione aggiuntiva da applicare a camera_link
-        R_correction = R.from_euler('xyz', [90, -90, 0], degrees=True).as_matrix()
+        # Definisci la rotazione aggiuntiva da applicare a camera_color_optical_frame per arrivare a camera_link
+        try:
+            transform = self.tf_buffer.lookup_transform("camera_color_optical_frame","camera_link", rclpy.time.Time())
+
+            # Estrai la rotazione come quaternione e convertila in matrice di rotazione
+            quat = transform.transform.rotation
+            R_correction = R.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
+
+
+            # Estrai la traslazione
+            T_correction = np.array([transform.transform.translation.x,
+                                    transform.transform.translation.y,
+                                    transform.transform.translation.z])
+            
+            # # Stampa la trasformazione applicata
+            # euler_angles = R.from_matrix(R_correction).as_euler('xyz', degrees=True)
+            # self.get_logger().info(
+            #         f"Applying transformation:\n"
+            #         f"Rotation (Euler XYZ) color_optical_frame -> camera_link = X: {euler_angles[0]:.2f}°, Y: {euler_angles[1]:.2f}°, Z: {euler_angles[2]:.2f}°\n"
+            #         f"Translation color_optical_frame -> camera_link = X: {T_correction[0]:.4f} m, Y: {T_correction[1]:.4f} m, Z: {T_correction[2]:.4f} m"
+            #     )
+            
+        except Exception as e:
+            self.get_logger().error(f"Failed to get transform from camera_color_optical_frame to camera_link: {e}")
+            R_correction = np.eye(3)  # Matrice identità come fallback
+            T_correction = np.zeros(3)  # Nessuna traslazione come fallback
+
+
 
         # Applica la rotazione aggiuntiva alla rotazione media calcolata
         R_final = mean_R @ R_correction  # Prima ruota secondo la media, poi aggiungi la correzione
 
         # Calcola la traslazione modificata (se vuoi che sia affetta dalla rotazione)
-        T_final = mean_T + np.array([0.015, 0.0, 0.0])  # Applica la traslazione aggiuntiva
+        T_final = mean_T + T_correction # Applica la traslazione aggiuntiva
 
         # Converti la nuova rotazione in quaternione
         quaternion = R.from_matrix(R_final).as_quat()
 
-
-        # Disegna gli assi del frame corretto
-        #cv2.drawFrameAxes(frame, self.camera_matrix, self.dist_coeffs, rvec_camera, T_camera, 0.05)
+        # Disegna gli assi del frame della camera
+        # cv2.drawFrameAxes(frame, self.camera_matrix, self.dist_coeffs, rvec, T_camera, 0.05)
 
         # Creazione del messaggio di trasformazione
         t = TransformStamped()
@@ -322,8 +348,6 @@ class GripperController(Node):
         """Attende che l'utente inserisca il marker ArUco."""
         self.get_logger().info("Insert the ArUco Marker")
         time.sleep(wait_time)
-    
-
 
 
 def main(args=None):

@@ -41,9 +41,9 @@ class GraspController(Node):
 
         self.get_logger().info(f"Sending grasp command: width={position}, effort={effort}, speed={velocity}, epsilonIN/OUT={innerepsilon},{outerepsilon}")
         send_goal_future = self.action_client.send_goal_async(goal_msg)
-        send_goal_future.add_done_callback(self.goal_response_callback)
+        send_goal_future.add_done_callback(self.grasp_response_callback)
 
-    def goal_response_callback(self, future):
+    def grasp_response_callback(self, future):
         """Gestisce la risposta del server al comando."""
         try:
             goal_handle = future.result()
@@ -51,11 +51,11 @@ class GraspController(Node):
                 self.get_logger().error("Grasp command rejected.")
                 return
             self.get_logger().info("Grasp command accepted. Waiting for result...")
-            goal_handle.get_result_async().add_done_callback(self.result_callback)
+            goal_handle.get_result_async().add_done_callback(self.grasp_result_callback)
         except Exception as e:
             self.get_logger().error(f"Goal response error: {e}")
 
-    def result_callback(self, future):
+    def grasp_result_callback(self, future):
         """Gestisce il risultato del comando inviato al gripper."""
         try:
             result = future.result().result

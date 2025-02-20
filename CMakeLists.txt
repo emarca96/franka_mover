@@ -46,6 +46,8 @@ install(
     
     scripts/basic/franka_gripper.py #aziona il gripper del FR3
     
+    scripts/basic/franka_grasper.py #aziona il gripper PER IL GRASP del FR3
+    
     scripts/basic/prova_trasform.py  # trasformazione statica tra camera_link e fr3_link0
     
   DESTINATION lib/${PROJECT_NAME}
