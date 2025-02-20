@@ -28,3 +28,11 @@ ros2 topic pub --once /apple_coordinates_realsense geometry_msgs/msg/PoseStamped
 
 
 
+
+sudo apt update
+sudo apt install ros-humble-moveit ros-humble-moveit-msgs ros-humble-octomap-msgs ros-humble-octomap-ros
+pip install numpy
+
+
+
+
