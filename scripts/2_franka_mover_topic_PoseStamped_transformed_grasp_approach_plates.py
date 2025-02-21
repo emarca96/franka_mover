@@ -225,7 +225,7 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, plate_height = 0.01, plate_radius = 0.11, plate_distance = 0.015):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, plate_height = 0.005, plate_radius = 0.1, plate_distance = 0.015):
         """
         Aggiunge una sfera con due piatti tangenti sopra e sotto come oggetti di collisione nell'ambiente di MoveIt.
 
