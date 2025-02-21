@@ -80,10 +80,8 @@ OPEN = 0.04
 CLOSE = 0.03 #da tarare in base alla mela
 ############################################
 #### Pubblicazione cilindro / Sfera ########
-CILINDER = True
-SPHERE = True
 ############################################
-DISTANCE_APPROACH = 0.1
+DISTANCE_APPROACH = 0.15
 
 class MoveFR3(Node):
     def __init__(self):
@@ -227,85 +225,89 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, height = 0.5 ):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, plate_height = 0.01, plate_radius = 0.11, plate_distance = 0.015):
         """
-        Aggiunge una sfera e/o un cilindro come oggetti di collisione nell'ambiente di MoveIt in base alle costanti CILINDER e SPHERE.
+        Aggiunge una sfera con due piatti tangenti sopra e sotto come oggetti di collisione nell'ambiente di MoveIt.
 
         Args:
-            radius (float): Raggio della sfera e del cilindro.
-            height (float): Altezza del cilindro.
+            radius (float): Raggio della sfera.
+            plate_height (float): Altezza dei piatti circolari.
+            plate_radius (float): Raggio dei piatti circolari.
             pos_x (float): Coordinata X della posizione.
             pos_y (float): Coordinata Y della posizione.
             pos_z (float): Coordinata Z della posizione.
-            reference_frame (str): Nome del sistema di riferimento per la sfera e il cilindro.
+            reference_frame (str): Nome del sistema di riferimento.
         """
-        if SPHERE:
-            collision_sphere = CollisionObject()
-            collision_sphere.header.frame_id = reference_frame
-            collision_sphere.id = "collision_sphere"
+        # Creazione della sfera
+        collision_sphere = CollisionObject()
+        collision_sphere.header.frame_id = reference_frame
+        collision_sphere.id = "collision_sphere"
 
-            sphere_primitive = SolidPrimitive()
-            sphere_primitive.type = SolidPrimitive.SPHERE
-            sphere_primitive.dimensions = [radius]  # Il raggio della sfera
+        sphere_primitive = SolidPrimitive()
+        sphere_primitive.type = SolidPrimitive.SPHERE
+        sphere_primitive.dimensions = [radius]  # Il raggio della sfera
 
-            sphere_pose = Pose()
-            sphere_pose.position.x = pos_x
-            sphere_pose.position.y = pos_y
-            sphere_pose.position.z = pos_z
-            sphere_pose.orientation.w = 1.0  
+        sphere_pose = Pose()
+        sphere_pose.position.x = pos_x
+        sphere_pose.position.y = pos_y
+        sphere_pose.position.z = pos_z
+        sphere_pose.orientation.w = 1.0  
 
-            collision_sphere.primitives.append(sphere_primitive)
-            collision_sphere.primitive_poses.append(sphere_pose)
-            collision_sphere.operation = CollisionObject.ADD
+        collision_sphere.primitives.append(sphere_primitive)
+        collision_sphere.primitive_poses.append(sphere_pose)
+        collision_sphere.operation = CollisionObject.ADD
+        
+        self.collision_object_publisher.publish(collision_sphere)
+        time.sleep(1.0)
+        self.get_logger().info(f"Added collision sphere in frame '{reference_frame}' with radius {radius} m.")
 
-            self.collision_object_publisher.publish(collision_sphere)
-            self.get_logger().info(f"Added collision sphere in frame '{reference_frame}' with radius {radius} m.")
+        # Creazione dei due piatti
+        for i, offset in enumerate([-(radius + plate_distance), (radius + plate_distance)]):
+            collision_plate = CollisionObject()
+            collision_plate.header.frame_id = reference_frame
+            collision_plate.id = f"collision_plate_{i}"
 
-        if CILINDER:
-            collision_cylinder = CollisionObject()
-            collision_cylinder.header.frame_id = reference_frame
-            collision_cylinder.id = "collision_cylinder"
+            plate_primitive = SolidPrimitive()
+            plate_primitive.type = SolidPrimitive.CYLINDER
+            plate_primitive.dimensions = [plate_height, plate_radius]  # Altezza, raggio
 
-            cylinder_primitive = SolidPrimitive()
-            cylinder_primitive.type = SolidPrimitive.CYLINDER
-            cylinder_primitive.dimensions = [height, radius]  # Altezza, raggio
+            plate_pose = Pose()
+            plate_pose.position.x = pos_x
+            plate_pose.position.y = pos_y
+            plate_pose.position.z = pos_z + offset  # Posizionati sopra e sotto la sfera
+            plate_pose.orientation.w = 1.0  
 
-            cylinder_pose = Pose()
-            cylinder_pose.position.x = pos_x
-            cylinder_pose.position.y = pos_y
-            cylinder_pose.position.z = pos_z  # Centrato sulla sfera
-            cylinder_pose.orientation.w = 1.0  
+            collision_plate.primitives.append(plate_primitive)
+            collision_plate.primitive_poses.append(plate_pose)
+            collision_plate.operation = CollisionObject.ADD
+            
+            self.collision_object_publisher.publish(collision_plate)
+            self.get_logger().info(f"Added collision plate {i} in frame '{reference_frame}' with radius {plate_radius} m and height {plate_height} m.")
 
-            collision_cylinder.primitives.append(cylinder_primitive)
-            collision_cylinder.primitive_poses.append(cylinder_pose)
-            collision_cylinder.operation = CollisionObject.ADD
-
-            self.collision_object_publisher.publish(collision_cylinder)
-            self.get_logger().info(f"Added collision cylinder in frame '{reference_frame}' with radius {radius} m and height {height} m.")
-
-    def remove_collision_apple(self, sphere_id="collision_sphere", cylinder_id="collision_cylinder"):
+    def remove_collision_apple(self, sphere_id="collision_sphere", plate_ids=["collision_plate_0", "collision_plate_1"]):
         """
-        Rimuove la sfera e/o il cilindro dall'ambiente MoveIt usando i loro ID se sono stati pubblicati.
+        Rimuove la sfera e i due piatti dall'ambiente MoveIt usando i loro ID se sono stati pubblicati.
 
         Args:
             sphere_id (str): L'ID dell'oggetto sfera da rimuovere.
-            cylinder_id (str): L'ID dell'oggetto cilindro da rimuovere.
+            plate_ids (list of str): Lista degli ID dei piatti da rimuovere.
         """
-        if SPHERE:
-            collision_object = CollisionObject()
-            collision_object.id = sphere_id
-            collision_object.header.frame_id = TARGET_RF
-            collision_object.operation = CollisionObject.REMOVE  
-            self.collision_object_publisher.publish(collision_object)
-            self.get_logger().info(f"Object '{sphere_id}' removed.")
+        # Rimozione della sfera
+        collision_object = CollisionObject()
+        collision_object.id = sphere_id
+        collision_object.header.frame_id = TARGET_RF
+        collision_object.operation = CollisionObject.REMOVE  
+        self.collision_object_publisher.publish(collision_object)
+        self.get_logger().info(f"Object '{sphere_id}' removed.")
 
-        if CILINDER:
+        # Rimozione dei piatti
+        for plate_id in plate_ids:
             collision_object = CollisionObject()
-            collision_object.id = cylinder_id
+            collision_object.id = plate_id
             collision_object.header.frame_id = TARGET_RF
             collision_object.operation = CollisionObject.REMOVE  
             self.collision_object_publisher.publish(collision_object)
-            self.get_logger().info(f"Object '{cylinder_id}' removed.")
+            self.get_logger().info(f"Object '{plate_id}' removed.")
 
     def apple_callback(self, msg: PoseStamped):
         """Callback per il topic /apple_coordinates_realsense."""
@@ -550,7 +552,7 @@ class MoveFR3(Node):
 
         # APPLICA tolleranze di replanning
         goal_msg.request.allowed_planning_time= 5.0  # Tempo massimo di pianificazione
-        goal_msg.planning_options.replan_attempts = 30
+        goal_msg.planning_options.replan_attempts = 50
         goal_msg.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
 
         # goal_msg.request.planner_id = ""  # Usa il planner predefinito, che tiene conto delle collisioni
@@ -629,8 +631,8 @@ class MoveFR3(Node):
         goal_msg.request.goal_constraints.append(constraints)
 
         # APPLICA tolleranze di replanning
-        goal_msg.request.allowed_planning_time= 5.0  # Tempo massimo di pianificazione
-        goal_msg.planning_options.replan_attempts = 30
+        goal_msg.request.allowed_planning_time= 10.0  # Tempo massimo di pianificazione
+        goal_msg.planning_options.replan_attempts = 50
         goal_msg.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
 
         self.get_logger().info('Sending direct goal to move_group...')
