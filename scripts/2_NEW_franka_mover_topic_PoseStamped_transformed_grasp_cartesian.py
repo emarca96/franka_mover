@@ -436,48 +436,6 @@ class MoveFR3(Node):
             constraints.orientation_constraints.append(orientation_constraint)
 
         return constraints
-    
-    def send_grasp_command(self, position: float, effort: float, innerepsilon = 0.5, outerepsilon = 0.5, velocity = 0.2):
-        """Invia un comando al gripper."""
-        if self.action_client is None:
-            self.get_logger().error("Action client not initialized. Cannot send command.")
-            return
-
-        goal_msg = Grasp.Goal()
-        goal_msg.epsilon.inner = innerepsilon  
-        goal_msg.epsilon.outer = outerepsilon  
-        goal_msg.force = effort
-        goal_msg.speed = velocity
-        goal_msg.width = position
-
-        self.get_logger().info(f"Sending grasp command: width={position}, effort={effort}, speed={velocity}, epsilonIN/OUT={innerepsilon},{outerepsilon}")
-        send_goal_future = self.action_client.send_goal_async(goal_msg)
-        send_goal_future.add_done_callback(self.grasp_response_callback)
-
-    def grasp_response_callback(self, future):
-        """Gestisce la risposta del server al comando."""
-        try:
-            goal_handle = future.result()
-            if not goal_handle.accepted:
-                self.get_logger().error("Grasp command rejected.")
-                return
-            self.get_logger().info("Grasp command accepted. Waiting for result...")
-            goal_handle.get_result_async().add_done_callback(self.grasp_result_callback)
-        except Exception as e:
-            self.get_logger().error(f"Goal response error: {e}")
-
-    def grasp_result_callback(self, future):
-        """Gestisce il risultato del comando inviato al gripper."""
-        try:
-            result = future.result().result
-            if result.stalled:
-                self.get_logger().info("Grasp stalled (object likely grasped).")
-            elif result.reached_goal:
-                self.get_logger().info("Grasp reached goal.")
-            else:
-                self.get_logger().info("Grasp command executed but no specific result reported.")
-        except Exception as e:
-            self.get_logger().error(f"Result grasp callback error: {e}")
 
     def approach_goal(self):
         " 1 APPROCCIO INIZIALE "
@@ -581,7 +539,7 @@ class MoveFR3(Node):
         """Fase 2: Movimento verso l'obiettivo utilizzando un percorso cartesiano."""
         if not self.target_pose:
             self.get_logger().warn('No target pose received yet. Waiting...')
-            return
+            raise Exception("No target pose received")
 
         # Imposta il target pose per la fine del percorso cartesiano
         final_pose = PoseStamped()
@@ -616,12 +574,12 @@ class MoveFR3(Node):
                 self.get_logger().error(f'Failed to calculate cartesian path, error code: {cartesian_path_response.error_code.val}, robot free.')
                 self.robot_is_ready = True
                 self.status_publisher.publish(Bool(data=self.robot_is_ready))
-                return
+                return -99
         except Exception as e:
             self.get_logger().error(f'Error requesting cartesian path: {str(e)}, robot free')
             self.robot_is_ready = True
             self.status_publisher.publish(Bool(data=self.robot_is_ready))
-            return
+            return -99
 
         # Costruisce il goal per il movimento del robot lungo il percorso cartesiano
         follow_trajectory_goal = FollowJointTrajectory.Goal()
@@ -634,28 +592,99 @@ class MoveFR3(Node):
 
     def advance_response_callback(self, future):
         """Gestisce la risposta del server al comando di percorso cartesiano."""
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('Cartesian goal rejected by follow trajectory action server.')
-            return
-        self.get_logger().info('Cartesian goal accepted by follow trajectory action server. Waiting for result...')
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.advance_result_callback)
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                self.get_logger().error('Cartesian goal rejected by follow trajectory action server.')
+                return 
+            self.get_logger().info('Cartesian goal accepted by follow trajectory action server. Waiting for result...')
+            goal_handle.get_result_async().add_done_callback(self.advance_result_callback)
+        except Exception as e:
+            self.get_logger().error(f"Goal advance response error: {str(e)}")    
 
     def advance_result_callback(self, future):
         """Gestisce il risultato del comando di percorso cartesiano."""
-        result = future.result().result
-        if result.error_code == 0:  
-            self.get_logger().info('Cartesian path completed successfully!')
-            #self.send_grasp_command(position=CLOSE, effort=MAX_EFFORT)
-        else:
-            self.get_logger().error(f'Failed to execute cartesian path with error code: {result.error_code}')
+        try:
+            result = future.result().result
+            if result.error_code == 0:  
+                self.get_logger().info('Cartesian path completed successfully!')
+                
+                self.remove_collision_apple()
+                self.get_logger().info('Apple goal reached successfully!')
+                self.get_logger().info('Need to grasp the apple')
+                
+                # FACCIO IL GRASPING
+                self.send_grasp_command(position = CLOSE, effort = MAX_EFFORT)  # Chiudi il gripper
+                self.get_logger().info('Grasping...')
+                time.sleep(2.0)
+                self.get_logger().info('Fingers closed: apple grasped')
+
+                #MANDO ROBOT AL CESTO
+                self.go_to_basket() 
+
+            else:
+                self.get_logger().error(f'Failed to execute cartesian path with error code: {result.error_code.val}')
+                
+                # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
+                # attendo prossime coordinate
+                self.robot_is_ready = True
+                self.status_publisher.publish(Bool(data=self.robot_is_ready))
+                self.remove_collision_apple()
+        
+        except Exception as e:
+            self.get_logger().error(f"Result advance callback: {str(e)}")
+
+            # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
+            # attendo nuove coordinate
             self.robot_is_ready = True
             self.status_publisher.publish(Bool(data=self.robot_is_ready))
+            self.remove_collision_apple()
+        
+    def send_grasp_command(self, position: float, effort: float, innerepsilon = 0.5, outerepsilon = 0.5, velocity = 0.2):
+        """Invia un comando al gripper."""
+        if self.gripper_client is None:
+            self.get_logger().error("Action client not initialized. Cannot send command.")
+            raise Exception("Grasping server not available")
 
+        goal_msg = Grasp.Goal()
+        goal_msg.epsilon.inner = innerepsilon  
+        goal_msg.epsilon.outer = outerepsilon  
+        goal_msg.force = effort
+        goal_msg.speed = velocity
+        goal_msg.width = position
+
+        self.get_logger().info(f"Sending grasp command: width={position}, effort={effort}, speed={velocity}, epsilonIN/OUT={innerepsilon},{outerepsilon}")
+        send_goal_future = self.gripper_client.send_goal_async(goal_msg)
+        send_goal_future.add_done_callback(self.grasp_response_callback)
+
+    def grasp_response_callback(self, future):
+        """Gestisce la risposta del server al comando."""
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                self.get_logger().error("Grasp command rejected.")
+                return
+            self.get_logger().info("Grasp command accepted. Waiting for result...")
+            goal_handle.get_result_async().add_done_callback(self.grasp_result_callback)
+        except Exception as e:
+            self.get_logger().error(f"Goal response error: {e}")
+
+    def grasp_result_callback(self, future):
+        """Gestisce il risultato del comando inviato al gripper."""
+        try:
+            result = future.result().result
+            if result.stalled:
+                self.get_logger().info("Grasp stalled (object likely grasped).")
+            elif result.reached_goal:
+                self.get_logger().info("Grasp reached goal.")
+            else:
+                self.get_logger().info("Grasp command executed but no specific result reported.")
+        except Exception as e:
+            self.get_logger().error(f"Result grasp callback error: {e}")
 
     def go_to_basket(self):
         """Sposta il robot alla posizione del basket specificata nelle costanti."""
+        
         self.get_logger().info('Moving to basket...')
         basket_goal = MoveGroup.Goal()
         basket_goal.request.group_name = 'fr3_arm'
