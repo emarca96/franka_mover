@@ -12,7 +12,8 @@ from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose_stamped
 from std_msgs.msg import Bool # per avvisare se il robot è ready o busy
 from franka_msgs.action import Grasp
-from visualization_msgs.msg import Marker
+from moveit_msgs.srv import GetCartesianPath
+from control_msgs.action import FollowJointTrajectory
 import numpy as np
 import time
 import yaml
@@ -127,13 +128,24 @@ class MoveFR3(Node):
             10
         )
 
-        # Verifica della disponibilità del server d'azione
+        # Verifica della disponibilità del server d'azione gripper
         self.get_logger().info("Waiting for grasp action server...")
         if not self.gripper_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("Grasp action server not available.")
             self.gripper_client = None  # Imposta a None per evitare ulteriori operazioni
         else:
             self.get_logger().info("Grasp action server available.")
+
+         # Client per il servizio GetCartesianPath
+        self.get_cartesian_path_client = self.create_client(GetCartesianPath, '/compute_cartesian_path')
+        while not self.get_cartesian_path_client.wait_for_service(timeout_sec=10.0):
+            self.get_logger().info('Waiting for the GetCartesianPath service...')
+        self.get_logger().info('GetCartesianPath service is available.')
+        
+        # Action client per FollowJointTrajectory
+        self.follow_trajectory_client = ActionClient(self, FollowJointTrajectory, 'fr3_arm_controller/follow_joint_trajectory')
+        self.follow_trajectory_client.wait_for_server()
+        self.get_logger().info('FollowJointTrajectory action server is available.')    
 
 
         # Creazione e pubblicazione dell'oggetto di collisione tavolo 
@@ -225,14 +237,10 @@ class MoveFR3(Node):
 
         return collision_object
     
-    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03, plate_height = 0.005, plate_radius = 0.1, plate_distance = 0.015):
+    def add_collision_apple(self, pos_x , pos_y , pos_z , reference_frame = TARGET_RF, radius = 0.03):
         """
-        Aggiunge una sfera con due piatti tangenti sopra e sotto come oggetti di collisione nell'ambiente di MoveIt.
-
         Args:
-            radius (float): Raggio della sfera.
-            plate_height (float): Altezza dei piatti circolari.
-            plate_radius (float): Raggio dei piatti circolari.
+            radius (float): Raggio della sfera
             pos_x (float): Coordinata X della posizione.
             pos_y (float): Coordinata Y della posizione.
             pos_z (float): Coordinata Z della posizione.
@@ -261,36 +269,12 @@ class MoveFR3(Node):
         time.sleep(1.0)
         self.get_logger().info(f"Added collision sphere in frame '{reference_frame}' with radius {radius} m.")
 
-        # Creazione dei due piatti
-        for i, offset in enumerate([-(radius + plate_distance), (radius + plate_distance)]):
-            collision_plate = CollisionObject()
-            collision_plate.header.frame_id = reference_frame
-            collision_plate.id = f"collision_plate_{i}"
-
-            plate_primitive = SolidPrimitive()
-            plate_primitive.type = SolidPrimitive.CYLINDER
-            plate_primitive.dimensions = [plate_height, plate_radius]  # Altezza, raggio
-
-            plate_pose = Pose()
-            plate_pose.position.x = pos_x
-            plate_pose.position.y = pos_y
-            plate_pose.position.z = pos_z + offset  # Posizionati sopra e sotto la sfera
-            plate_pose.orientation.w = 1.0  
-
-            collision_plate.primitives.append(plate_primitive)
-            collision_plate.primitive_poses.append(plate_pose)
-            collision_plate.operation = CollisionObject.ADD
-            
-            self.collision_object_publisher.publish(collision_plate)
-            self.get_logger().info(f"Added collision plate {i} in frame '{reference_frame}' with radius {plate_radius} m and height {plate_height} m.")
-
-    def remove_collision_apple(self, sphere_id="collision_sphere", plate_ids=["collision_plate_0", "collision_plate_1"]):
+    def remove_collision_apple(self, sphere_id="collision_sphere"):
         """
-        Rimuove la sfera e i due piatti dall'ambiente MoveIt usando i loro ID se sono stati pubblicati.
+        Rimuove la sfera dall'ambiente MoveIt usando i loro ID se sono stati pubblicati.
 
         Args:
             sphere_id (str): L'ID dell'oggetto sfera da rimuovere.
-            plate_ids (list of str): Lista degli ID dei piatti da rimuovere.
         """
         # Rimozione della sfera
         collision_object = CollisionObject()
@@ -299,15 +283,6 @@ class MoveFR3(Node):
         collision_object.operation = CollisionObject.REMOVE  
         self.collision_object_publisher.publish(collision_object)
         self.get_logger().info(f"Object '{sphere_id}' removed.")
-
-        # Rimozione dei piatti
-        for plate_id in plate_ids:
-            collision_object = CollisionObject()
-            collision_object.id = plate_id
-            collision_object.header.frame_id = TARGET_RF
-            collision_object.operation = CollisionObject.REMOVE  
-            self.collision_object_publisher.publish(collision_object)
-            self.get_logger().info(f"Object '{plate_id}' removed.")
 
     def apple_callback(self, msg: PoseStamped):
         """Callback per il topic /apple_coordinates_realsense."""
@@ -603,89 +578,81 @@ class MoveFR3(Node):
             self.remove_collision_apple()
 
     def advance_goal(self):
-        """Fase 2: Movimento diretto in linea retta verso la mela senza step intermedi."""
-        target_pose = self.target_pose
+        """Fase 2: Movimento verso l'obiettivo utilizzando un percorso cartesiano."""
+        if not self.target_pose:
+            self.get_logger().warn('No target pose received yet. Waiting...')
+            return
 
-        goal_msg = MoveGroup.Goal()
-        goal_msg.request.group_name = 'fr3_arm'
-
-        quaternion = self.obtain_quaternion(
+        # Imposta il target pose per la fine del percorso cartesiano
+        final_pose = PoseStamped()
+        final_pose.header.frame_id = TARGET_RF
+        final_pose.pose.position = self.target_pose.pose.position
+        final_pose.pose.orientation = self.obtain_quaternion(
             TARGET_RF,
             90,
-            target_pose.pose.position.x,
-            target_pose.pose.position.y,
-            target_pose.pose.position.z
+            self.target_pose.pose.position.x,
+            self.target_pose.pose.position.y,
+            self.target_pose.pose.position.z
         )
 
-        # Imposta vincoli di posizione e orientamento
-        constraints = self.make_constraints(
-            target_pose.pose.position.x,
-            target_pose.pose.position.y,
-            target_pose.pose.position.z,
-            quaternion.x,
-            quaternion.y,
-            quaternion.z,
-            quaternion.w
-        )
+        # Configura la richiesta per il percorso cartesiano
+        cartesian_path_request = GetCartesianPath.Request()
+        cartesian_path_request.group_name = "fr3_arm"
+        cartesian_path_request.link_name = HAND_RF
+        cartesian_path_request.header = final_pose.header
+        cartesian_path_request.waypoints = [final_pose.pose]
+        cartesian_path_request.max_step = 0.01  # Massimo incremento consentito per i waypoint
+        cartesian_path_request.jump_threshold = 0.0
+        cartesian_path_request.avoid_collisions = True
 
-        goal_msg.request.goal_constraints.append(constraints)
+        # Richiede il calcolo del percorso cartesiano
+        cartesian_path_future = self.get_cartesian_path_client.call_async(cartesian_path_request)
+        rclpy.spin_until_future_complete(self, cartesian_path_future)
 
-        # APPLICA tolleranze di replanning
-        goal_msg.request.allowed_planning_time= 10.0  # Tempo massimo di pianificazione
-        goal_msg.planning_options.replan_attempts = 50
-        goal_msg.planning_options.replan = True  # Abilita il ricalcolo del percorso se fallisce
-
-        self.get_logger().info('Sending direct goal to move_group...')
-        send_goal_future = self.action_client.send_goal_async(goal_msg)
-        send_goal_future.add_done_callback(self.advance_response_callback)
-
-    def advance_response_callback(self, future):
-        """Gestisce la risposta del server MoveGroup advance al goal inviato."""
+        # Controlla la risposta del servizio
         try:
-            goal_handle = future.result()
-            if not goal_handle.accepted:
-                self.get_logger().error('Goal advance rejected by move_group.')
-                return
-            self.get_logger().info('Goal advance accepted by move_group. Waiting for result...')
-            goal_handle.get_result_async().add_done_callback(self.advance_result_callback)
-        except Exception as e:
-            self.get_logger().error(f"Goal advance response error: {str(e)}")
-
-    def advance_result_callback(self, future):
-        """Gestisce il risultato del goal advance inviato."""
-        try:
-            result = future.result().result
-            if result.error_code.val == 1:  # 1 indica SUCCESSO nella MoveIt error codes
-                self.remove_collision_apple()
-                self.get_logger().info('Apple goal reached successfully!')
-                self.get_logger().info('Need to grasp the apple')
-                
-                # FACCIO IL GRASPING
-                self.send_grasp_command(position = CLOSE, effort = MAX_EFFORT)  # Chiudi il gripper
-                self.get_logger().info('Grasping...')
-                time.sleep(2.0)
-                self.get_logger().info('Fingers closed: apple grasped')
-
-                #MANDO ROBOT AL CESTO
-                self.go_to_basket() 
-
-            else:
-                self.get_logger().error(f'MoveGroup failed advance with error code: {result.error_code.val}')
-               
-                # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
-                # attendo prossime coordinate
+            cartesian_path_response = cartesian_path_future.result()
+            if cartesian_path_response.error_code.val != 1:                
+                self.get_logger().error(f'Failed to calculate cartesian path, error code: {cartesian_path_response.error_code.val}, robot free.')
                 self.robot_is_ready = True
                 self.status_publisher.publish(Bool(data=self.robot_is_ready))
-                self.remove_collision_apple()
-
+                return
         except Exception as e:
-            self.get_logger().error(f"Result advance callback error: {str(e)}")
-
-            # il robot NON riesce ad andare in quella posizione quindi è di nuovo libero
-            # attendo nuove coordinate
+            self.get_logger().error(f'Error requesting cartesian path: {str(e)}, robot free')
             self.robot_is_ready = True
             self.status_publisher.publish(Bool(data=self.robot_is_ready))
-            self.remove_collision_apple()
+            return
+
+        # Costruisce il goal per il movimento del robot lungo il percorso cartesiano
+        follow_trajectory_goal = FollowJointTrajectory.Goal()
+        follow_trajectory_goal.trajectory = cartesian_path_response.solution.joint_trajectory
+
+        # Invio del goal per eseguire il percorso cartesiano
+        send_goal_future = self.follow_trajectory_client.send_goal_async(follow_trajectory_goal)
+        send_goal_future.add_done_callback(self.advance_response_callback)
+
+
+    def advance_response_callback(self, future):
+        """Gestisce la risposta del server al comando di percorso cartesiano."""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Cartesian goal rejected by follow trajectory action server.')
+            return
+        self.get_logger().info('Cartesian goal accepted by follow trajectory action server. Waiting for result...')
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self.advance_result_callback)
+
+    def advance_result_callback(self, future):
+        """Gestisce il risultato del comando di percorso cartesiano."""
+        result = future.result().result
+        if result.error_code == 0:  
+            self.get_logger().info('Cartesian path completed successfully!')
+            #self.send_grasp_command(position=CLOSE, effort=MAX_EFFORT)
+        else:
+            self.get_logger().error(f'Failed to execute cartesian path with error code: {result.error_code}')
+            self.robot_is_ready = True
+            self.status_publisher.publish(Bool(data=self.robot_is_ready))
+
 
     def go_to_basket(self):
         """Sposta il robot alla posizione del basket specificata nelle costanti."""
